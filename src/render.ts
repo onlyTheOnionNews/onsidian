@@ -281,6 +281,11 @@ interface RenderOpts {
 }
 
 export const MarkdownRenderer = {
+	/** Legacy (deprecated) form without `app`; uses the global app. */
+	renderMarkdown(markdown: string, el: HTMLElement, sourcePath: string, component: Component): Promise<void> {
+		return MarkdownRenderer.render((window as any).app, markdown, el, sourcePath, component);
+	},
+
 	/** obsidian.d.ts MarkdownRenderer.render */
 	async render(app: App, markdown: string, el: HTMLElement, sourcePath: string, component: Component, opts: RenderOpts = {}): Promise<void> {
 		const env: Env = {
@@ -434,6 +439,16 @@ async function renderEmbeds(app: App, root: HTMLElement, sourcePath: string, com
 		}
 		const ext = file.extension.toLowerCase();
 		el.addClass('is-loaded');
+		// Plugins render their own file types (and may wrap the Markdown creator, as Kanban does).
+		const creator = app.embedRegistry.embedByExtension[ext];
+		if (creator && (ext === 'md' || !(creator as any).builtin)) {
+			const child = creator({ app, containerEl: el, sourcePath, linktext: src, depth: chain.length, chain } as any, file, subpath) as any;
+			if (child) {
+				component.addChild(child);
+				await child.loadFile?.();
+			}
+			return;
+		}
 		if (IMAGE.has(ext) || AUDIO.has(ext) || VIDEO.has(ext) || ext === 'pdf') {
 			el.addClass('media-embed');
 			const url = await app.vault.getResourceUrl(file);
@@ -458,26 +473,38 @@ async function renderEmbeds(app: App, root: HTMLElement, sourcePath: string, com
 			}
 			return;
 		}
-		if (ext === 'md') {
-			el.addClass('markdown-embed');
-			if (chain.includes(file.path) || chain.length > 5) {
-				el.createDiv({ cls: 'markdown-embed-content', text: 'Embed loop or nesting limit reached.' });
-				return;
-			}
-			const titleEl = el.createDiv('markdown-embed-title');
-			titleEl.setText(subpath ? `${file.basename}${subpath.replace(/^#\^?/, ' › ')}` : file.basename);
-			const link = el.createDiv({ cls: 'markdown-embed-link', attr: { 'aria-label': 'Open link' } });
-			setIcon(link, 'link');
-			link.addEventListener('click', () => void app.workspace.openLinkText(src, sourcePath));
-			const content = el.createDiv('markdown-embed-content');
-			const { text, lineOffset } = await sliceForSubpath(app, file, subpath);
-			await MarkdownRenderer.render(app, text, content, file.path, component, { chain: [...chain, file.path], lineOffset });
-			return;
-		}
 		el.addClass('file-embed');
 		const link = el.createEl('a', { cls: 'internal-link', text: file.name, attr: { 'data-href': file.path, href: file.path } });
 		setIcon(link.createSpan({ cls: 'file-embed-icon', prepend: true }), 'file');
 	}));
+}
+
+/**
+ * Built-in creator for `embedRegistry.embedByExtension.md`: a component whose loadFile() renders the note (or a
+ * #heading / #^block slice) into ctx.containerEl. Plugins can wrap it.
+ */
+export function markdownEmbedCreator(ctx: { app: App; containerEl: HTMLElement; sourcePath: string; linktext?: string; chain?: string[] }, file: TFile, subpath: string): Component {
+	const child = new MarkdownRenderChild(ctx.containerEl) as MarkdownRenderChild & { loadFile(): Promise<void>; showEditor(): void; showPreview(): void };
+	// Obsidian's embed exposes these; embeds here are read-only renders.
+	child.showEditor = () => {};
+	child.showPreview = () => {};
+	child.loadFile = async () => {
+		const { app, containerEl: el, sourcePath } = ctx;
+		const chain = ctx.chain ?? [sourcePath];
+		el.addClass('markdown-embed');
+		if (chain.includes(file.path) || chain.length > 5) {
+			el.createDiv({ cls: 'markdown-embed-content', text: 'Embed loop or nesting limit reached.' });
+			return;
+		}
+		el.createDiv({ cls: 'markdown-embed-title', text: subpath ? `${file.basename}${subpath.replace(/^#\^?/, ' › ')}` : file.basename });
+		const link = el.createDiv({ cls: 'markdown-embed-link', attr: { 'aria-label': 'Open link' } });
+		setIcon(link, 'link');
+		link.addEventListener('click', () => void app.workspace.openLinkText(ctx.linktext ?? file.path, sourcePath));
+		const content = el.createDiv('markdown-embed-content');
+		const { text, lineOffset } = await sliceForSubpath(app, file, subpath);
+		await MarkdownRenderer.render(app, text, content, file.path, child, { chain: [...chain, file.path], lineOffset });
+	};
+	return child;
 }
 
 /** The text an embed shows: whole note (minus frontmatter), a heading's section, or a block. */

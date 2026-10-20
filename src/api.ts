@@ -7,8 +7,10 @@ import * as cmState from '@codemirror/state';
 import * as cmView from '@codemirror/view';
 import * as lezerCommon from '@lezer/common';
 import * as lezerHighlight from '@lezer/highlight';
+import * as lezerLr from '@lezer/lr';
 import DOMPurify from 'dompurify';
 import { dump as dumpYaml, load as loadYaml, CORE_SCHEMA } from 'js-yaml';
+import { icons as lucideIcons } from 'lucide';
 import moment from 'moment';
 import { BaseAdapter } from './adapters';
 import { Editor } from './editor';
@@ -17,7 +19,7 @@ import { FileManager } from './filemanager';
 import { addIcon, getIcon, removeIcon, setIcon } from './icons';
 import { Keymap, Scope, isMac } from './keymap';
 import { MetadataCache } from './metadata';
-import { SettingTab } from './modals';
+import { SettingPage, SettingTab } from './modals';
 import { request, requestUrl } from './network';
 import { getAllTags, getLinkpath, parseLinktext } from './parse';
 import { Plugin, PluginSettingTab } from './plugins';
@@ -26,12 +28,13 @@ import {
 } from './render';
 import { AbstractInputSuggest, EditorSuggest, PopoverSuggest } from './suggest';
 import {
-	ButtonComponent, ColorComponent, DropdownComponent, ExtraButtonComponent, FuzzySuggestModal, Menu, MenuItem, Modal,
-	Setting, SliderComponent, SuggestModal, TextAreaComponent, TextComponent, ToggleComponent,
+	AbstractTextComponent, BaseComponent, ButtonComponent, ColorComponent, ConfirmationButton, ConfirmationModal, DropdownComponent,
+	ExtraButtonComponent, FuzzySuggestModal, Menu, MenuItem, Modal, MomentFormatComponent, ProgressBarComponent, SearchComponent,
+	SecretComponent, SecretStorage, Setting, SettingGroup, SliderComponent, SuggestModal, TextAreaComponent, TextComponent, ToggleComponent, ValueComponent,
 	prepareFuzzySearch, prepareSimpleSearch, renderMatches, renderResults,
 } from './ui';
 import { TAbstractFile, TFile, TFolder, Vault, normalizePath } from './vault';
-import { MarkdownView, editorInfoField, editorLivePreviewField, editorViewField } from './views/markdown';
+import { MarkdownView, editorEditorField, editorInfoField, editorLivePreviewField, editorViewField } from './views/markdown';
 import {
 	FileView, ItemView, Notice, TextFileView, View, Workspace, WorkspaceItem, WorkspaceLeaf, WorkspaceParent, WorkspaceRibbon,
 	WorkspaceRoot, WorkspaceSidedock, WorkspaceSplit, WorkspaceTabs,
@@ -197,6 +200,71 @@ export function setTooltip(el: HTMLElement, text: string): void {
 	el.setAttr('aria-label', text);
 }
 
+// ---- Classes plugins only use for instanceof / typing on web ----
+/** Desktop/mobile adapters: real classes (so `instanceof` works) that nothing on the web is an instance of. */
+export class FileSystemAdapter {}
+export class CapacitorAdapter {}
+export class TExternalFile extends TAbstractFile {}
+export class MenuSeparator {}
+export class MarkdownPreviewView {
+	/** Legacy static renderer (deprecated in Obsidian, still used by plugins). */
+	static renderMarkdown(markdown: string, el: HTMLElement, sourcePath: string, component: Component): Promise<void> {
+		return MarkdownRenderer.render((window as any).app, markdown, el, sourcePath, component);
+	}
+	static render(...args: Parameters<typeof MarkdownRenderer.render>): Promise<void> {
+		return MarkdownRenderer.render(...args);
+	}
+}
+export class MarkdownEditView {}
+export class WorkspaceContainer extends WorkspaceSplit {}
+export class WorkspaceWindow extends WorkspaceContainer {}
+export class WorkspaceFloating extends WorkspaceParent {
+	protected renderChildren(): void {}
+}
+export class WorkspaceMobileDrawer extends WorkspaceParent {
+	protected renderChildren(): void {}
+}
+export enum PopoverState { Showing, Shown, Hiding, Hidden }
+
+/** A popover anchored to an element (page preview uses its own; plugins build custom ones with this). */
+export class HoverPopover extends Component {
+	hoverEl = createDiv('popover hover-popover');
+	state = PopoverState.Showing;
+	constructor(_parent: unknown, targetEl: HTMLElement | null, _waitTime?: number, staticPos?: { x: number; y: number } | null) {
+		super();
+		document.body.appendChild(this.hoverEl);
+		const r = targetEl?.getBoundingClientRect();
+		this.hoverEl.style.left = `${staticPos?.x ?? r?.left ?? 0}px`;
+		this.hoverEl.style.top = `${staticPos?.y ?? (r ? r.bottom + 6 : 0)}px`;
+		this.state = PopoverState.Shown;
+		this.load();
+	}
+	onunload(): void {
+		this.state = PopoverState.Hidden;
+		this.hoverEl.detach();
+	}
+	hide(): void {
+		this.unload();
+	}
+}
+
+/** Async work to finish before quitting (workspace 'quit' event). */
+export class Tasks {
+	private list: Promise<any>[] = [];
+	add(cb: () => Promise<any>): void { this.list.push(cb()); }
+	addPromise(p: Promise<any>): void { this.list.push(p); }
+	isEmpty(): boolean { return !this.list.length; }
+	promise(): Promise<any> { return Promise.all(this.list); }
+}
+
+export const getLanguage = (): string => (navigator.language || 'en').split('-')[0];
+export const getBlobArrayBuffer = (blob: Blob): Promise<ArrayBuffer> => blob.arrayBuffer();
+export function getIconIds(): string[] {
+	return Object.keys(lucideIcons).map((n) => 'lucide-' + n.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').toLowerCase());
+}
+/** ViewPlugin exposing { mousedown } (Live Preview selection state). */
+export const livePreviewState = cmView.ViewPlugin.define(() => ({ mousedown: false }));
+
 export async function loadPdfJs(): Promise<never> {
 	throw new Error('pdf.js is not bundled yet (phase 4).');
 }
@@ -208,16 +276,18 @@ export const obsidianModule = {
 	Events, Component, debounce, Keymap, Scope, Notice,
 	App: Object, // type-only in practice; plugins don't construct App
 	Vault, TAbstractFile, TFile, TFolder, normalizePath, MetadataCache, FileManager, DataAdapter: BaseAdapter,
-	FileSystemAdapter: undefined, // desktop-only; `instanceof FileSystemAdapter` checks must stay false
-	Plugin, PluginSettingTab, SettingTab,
+	FileSystemAdapter, CapacitorAdapter, TExternalFile, Tasks, SecretStorage,
+	Plugin, PluginSettingTab, SettingTab, SettingPage, SettingGroup,
 	// workspace & views
 	Workspace, WorkspaceItem, WorkspaceParent, WorkspaceSplit, WorkspaceRoot, WorkspaceSidedock, WorkspaceTabs, WorkspaceLeaf,
-	WorkspaceRibbon, View, ItemView, FileView, TextFileView, EditableFileView: TextFileView, MarkdownView,
-	Editor, editorInfoField, editorViewField, editorLivePreviewField,
+	WorkspaceRibbon, WorkspaceContainer, WorkspaceWindow, WorkspaceFloating, WorkspaceMobileDrawer, View, ItemView, FileView, TextFileView, EditableFileView: TextFileView, MarkdownView,
+	Editor, editorInfoField, editorViewField, editorLivePreviewField, editorEditorField, livePreviewState, MarkdownPreviewView, MarkdownEditView,
 	// UI
-	Modal, SuggestModal, FuzzySuggestModal, Menu, MenuItem, Setting, ToggleComponent, TextComponent, TextAreaComponent,
-	DropdownComponent, SliderComponent, ColorComponent, ButtonComponent, ExtraButtonComponent,
-	PopoverSuggest, AbstractInputSuggest, EditorSuggest,
+	Modal, SuggestModal, FuzzySuggestModal, ConfirmationModal, ConfirmationButton, Menu, MenuItem, MenuSeparator, Setting,
+	BaseComponent, ValueComponent, AbstractTextComponent, ToggleComponent, TextComponent, TextAreaComponent, SearchComponent,
+	MomentFormatComponent, ProgressBarComponent, SecretComponent, DropdownComponent, SliderComponent, ColorComponent,
+	ButtonComponent, ExtraButtonComponent, PopoverSuggest, AbstractInputSuggest, EditorSuggest, HoverPopover, PopoverState,
+	getIconIds, getLanguage, getBlobArrayBuffer,
 	setIcon, getIcon, addIcon, removeIcon, setTooltip, displayTooltip,
 	// rendering
 	MarkdownRenderer, MarkdownRenderChild, MarkdownPreviewRenderer, renderMath, finishRenderMath, loadMathJax, loadMermaid, loadPrism, loadPdfJs,
@@ -231,7 +301,8 @@ export const obsidianModule = {
 
 /** Node/Electron built-ins: a value that throws a clear error when used, so desktop-guarded code still loads. */
 function unavailable(name: string): unknown {
-	const fail = () => {
+	// A regular function (not an arrow): it needs a .prototype so `class X extends require('mod').Y` still loads.
+	const fail = function () {
 		throw new Error(`"${name}" is not available in the browser (obsidian-online). This plugin path is desktop-only.`);
 	};
 	return new Proxy(fail, { get: (_t, prop) => (prop === Symbol.toPrimitive || prop === 'then' ? undefined : fail), apply: fail, construct: fail });
@@ -264,6 +335,78 @@ const path = {
 };
 path.posix = path;
 
+/** Minimal Node `events` (many bundles subclass EventEmitter even on mobile). */
+class EventEmitter {
+	private _ev = new Map<string | symbol, ((...a: any[]) => void)[]>();
+	private _max = 10;
+	on(name: string | symbol, fn: (...a: any[]) => void): this {
+		this._ev.set(name, [...(this._ev.get(name) ?? []), fn]);
+		return this;
+	}
+	addListener(name: string | symbol, fn: (...a: any[]) => void): this { return this.on(name, fn); }
+	prependListener(name: string | symbol, fn: (...a: any[]) => void): this {
+		this._ev.set(name, [fn, ...(this._ev.get(name) ?? [])]);
+		return this;
+	}
+	once(name: string | symbol, fn: (...a: any[]) => void): this {
+		const wrap = (...a: any[]) => {
+			this.off(name, wrap);
+			fn.apply(this, a);
+		};
+		return this.on(name, wrap);
+	}
+	off(name: string | symbol, fn: (...a: any[]) => void): this {
+		this._ev.set(name, (this._ev.get(name) ?? []).filter((f) => f !== fn));
+		return this;
+	}
+	removeListener(name: string | symbol, fn: (...a: any[]) => void): this { return this.off(name, fn); }
+	removeAllListeners(name?: string | symbol): this {
+		if (name === undefined) this._ev.clear();
+		else this._ev.delete(name);
+		return this;
+	}
+	emit(name: string | symbol, ...args: any[]): boolean {
+		const list = this._ev.get(name);
+		if (!list?.length) {
+			if (name === 'error') throw args[0] instanceof Error ? args[0] : new Error(String(args[0]));
+			return false;
+		}
+		for (const f of [...list]) f.apply(this, args);
+		return true;
+	}
+	listeners(name: string | symbol): ((...a: any[]) => void)[] { return [...(this._ev.get(name) ?? [])]; }
+	listenerCount(name: string | symbol): number { return this._ev.get(name)?.length ?? 0; }
+	eventNames(): (string | symbol)[] { return [...this._ev.keys()]; }
+	setMaxListeners(n: number): this { this._max = n; return this; }
+	getMaxListeners(): number { return this._max; }
+}
+
+/** Minimal Node `util`: the parts mobile-compatible bundles reach for at load time. */
+const util = {
+	promisify: (fn: (...a: any[]) => void) => (...args: any[]) => new Promise((res, rej) => fn(...args, (err: unknown, value: unknown) => (err ? rej(err) : res(value)))),
+	format: (f: unknown, ...args: unknown[]) => {
+		if (typeof f !== 'string') return [f, ...args].map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ');
+		let i = 0;
+		return f.replace(/%[sdifjoO%]/g, (m) => (m === '%%' ? '%' : i < args.length ? (m === '%j' || m === '%o' || m === '%O' ? JSON.stringify(args[i++]) : String(args[i++])) : m));
+	},
+	inspect: (x: unknown) => {
+		try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); }
+	},
+	inherits: (ctor: any, superCtor: any) => {
+		Object.setPrototypeOf(ctor.prototype, superCtor.prototype);
+		Object.setPrototypeOf(ctor, superCtor);
+	},
+	deprecate: <T>(fn: T) => fn,
+	isDeepStrictEqual: (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b),
+	types: {
+		isPromise: (x: unknown) => x instanceof Promise,
+		isDate: (x: unknown) => x instanceof Date,
+		isRegExp: (x: unknown) => x instanceof RegExp,
+	},
+	TextEncoder,
+	TextDecoder,
+};
+
 const modules: Record<string, unknown> = {
 	obsidian: obsidianModule,
 	moment,
@@ -274,14 +417,99 @@ const modules: Record<string, unknown> = {
 	'@codemirror/autocomplete': cmAutocomplete,
 	'@lezer/common': lezerCommon,
 	'@lezer/highlight': lezerHighlight,
+	'@lezer/lr': lezerLr,
 	path,
+	events: Object.assign(EventEmitter, { EventEmitter, default: EventEmitter }),
+	util,
 };
+
+/**
+ * Diagnostics (compat page sets window.__obsidianOnlineDiagnose): record API names plugins read that we don't provide,
+ * in window.__obsidianOnlineMissing ("obsidian.X", "app.X", "app.workspace.X", ...).
+ */
+export function trackMissing<T extends object>(target: T, label: string): T {
+	if (!(window as any).__obsidianOnlineDiagnose) return target;
+	const missing: Map<string, number> = ((window as any).__obsidianOnlineMissing ??= new Map());
+	return new Proxy(target, {
+		get(t, prop, recv) {
+			if (typeof prop === 'string' && !(prop in t) && !['then', 'toJSON', '__esModule', 'default'].includes(prop)) {
+				const key = `${label}.${prop}`;
+				missing.set(key, (missing.get(key) ?? 0) + 1);
+			}
+			return Reflect.get(t, prop, recv);
+		},
+	});
+}
+
+/**
+ * ES5-compiled plugins (TypeScript target ES5) subclass with `_super.call(this, ...) || this`, which throws on ES2015
+ * classes. Obsidian's own base classes tolerate it, so ours are exposed through callable wrappers: called without
+ * `new`, the wrapper constructs a real instance for the subclass and returns it, which ES5 subclasses then use as `this`.
+ */
+function callable<C extends abstract new (...args: any[]) => any>(C: C): C {
+	const F = function (this: any, ...args: unknown[]) {
+		return Reflect.construct(C, args, new.target ?? this?.constructor ?? C);
+	} as unknown as C;
+	F.prototype = C.prototype;
+	Object.setPrototypeOf(F, C);
+	Object.defineProperty(F, 'name', { value: C.name });
+	return F;
+}
+
+const isClass = (v: unknown): v is abstract new (...a: any[]) => any =>
+	typeof v === 'function' && /^class[\s{]/.test(Function.prototype.toString.call(v));
+const pluginFacingModule: Record<string, unknown> = Object.fromEntries(
+	Object.entries(obsidianModule).map(([k, v]) => [k, isClass(v) ? callable(v) : v]),
+);
 
 export function pluginRequire(id: string): unknown {
 	const name = id.replace(/^node:/, '');
+	if (name === 'obsidian') return trackMissing(pluginFacingModule, 'obsidian');
 	if (name in modules) return modules[name];
 	// Externals we don't ship and Node/Electron built-ins: loadable, but unusable.
 	return unavailable(name);
 }
 
 (window as any).moment = moment;
+
+/**
+ * Obsidian exposes CodeMirror 5's mode registry as `window.CodeMirror` (legacy syntax modes; Dataview, Admonition,
+ * Spaced Repetition and others define or look up modes). Modes are stored, not used for highlighting: our editor is CM6.
+ */
+const cm5Modes: Record<string, unknown> = {};
+const cm5Mime: Record<string, unknown> = {};
+(window as any).CodeMirror ??= {
+	modes: cm5Modes,
+	mimeModes: cm5Mime,
+	modeInfo: [] as unknown[],
+	defineMode(name: string, factory: unknown, ...deps: string[]) {
+		cm5Modes[name] = factory;
+		void deps;
+	},
+	defineMIME(mime: string, spec: unknown) {
+		cm5Mime[mime] = spec;
+	},
+	defineSimpleMode(name: string, states: unknown) {
+		cm5Modes[name] = () => ({ startState: () => ({}), token: (stream: any) => (stream.skipToEnd?.(), null), states });
+	},
+	/** Instantiate a mode; unknown ones fall back to a null mode that consumes the line. */
+	getMode(config: unknown, spec: string | { name: string }) {
+		const name = typeof spec === 'string' ? spec : spec?.name;
+		const factory = cm5Modes[name] as ((c: unknown, s: unknown) => any) | undefined;
+		try {
+			if (factory) return factory(config ?? {}, spec ?? {});
+		} catch (e) {
+			console.warn(`CodeMirror 5 mode "${name}" failed`, e);
+		}
+		return { name: 'null', token: (stream: any) => (stream.skipToEnd?.(), null) };
+	},
+	startState: (mode: any) => mode?.startState?.() ?? true,
+	copyState: (_mode: unknown, state: any) => (state && typeof state === 'object' ? { ...state } : state),
+	registerHelper() {},
+	defineExtension() {},
+	defineOption() {},
+	Pass: { toString: () => 'CodeMirror.Pass' },
+	commands: {},
+	keyMap: {},
+	runMode() {},
+};

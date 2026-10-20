@@ -148,8 +148,35 @@ export class QuickSwitcher extends SuggestModal<SwitcherItem> {
 export abstract class SettingTab {
 	id = '';
 	name = '';
+	icon = 'settings';
 	containerEl: HTMLElement = createDiv('vertical-tab-content');
+	/** Declarative settings (obsidian 1.13). ponytail: stored for plugins, not rendered; plugins also implement display(). */
+	settingItems: unknown[] = [];
 	constructor(public app: App) {}
+	abstract display(): void;
+	hide(): void {
+		this.containerEl.empty();
+	}
+	getSettingDefinitions(): unknown[] {
+		return [];
+	}
+	update(): void {
+		this.settingItems = this.getSettingDefinitions();
+	}
+	getControlValue(key: string): unknown {
+		return this.app.vault.getConfig(key);
+	}
+	setControlValue(key: string, value: unknown): void | Promise<void> {
+		this.app.vault.setConfig(key, value);
+	}
+}
+
+/** A sub-page inside settings (obsidian 1.13). Plugins subclass it; it renders into containerEl. */
+export abstract class SettingPage {
+	rootEl = createDiv('setting-page');
+	titlebarEl = this.rootEl.createDiv('setting-page-titlebar');
+	containerEl = this.rootEl.createDiv('setting-page-content');
+	title = '';
 	abstract display(): void;
 	hide(): void {
 		this.containerEl.empty();
@@ -159,6 +186,8 @@ export abstract class SettingTab {
 export class SettingsModal extends Modal {
 	settingTabs: SettingTab[] = [];
 	pluginTabs: SettingTab[] = [];
+	/** Open SettingPages, innermost last (obsidian 1.13 internals). */
+	pageStack: unknown[] = [];
 	activeTab: SettingTab | null = null;
 	private navEl: HTMLElement;
 	private contentWrapEl: HTMLElement;

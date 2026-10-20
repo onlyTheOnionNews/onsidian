@@ -47,6 +47,11 @@ export class InternalPlugins {
 
 	constructor(private app: App) {}
 
+	/** Internal: id → enabled (`app.internalPlugins.config`). */
+	get config(): Record<string, boolean> {
+		return Object.fromEntries(Object.values(this.plugins).map((p) => [p.instance.id, p.enabled]));
+	}
+
 	add(plugin: CorePlugin): void {
 		this.plugins[plugin.id] = { instance: plugin, enabled: false };
 	}

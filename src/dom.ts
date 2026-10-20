@@ -97,10 +97,24 @@ def(E, 'setAttr', function (this: Element, k: string, v: string | number | boole
 });
 def(E, 'setAttrs', function (this: any, o: Record<string, any>) { for (const k in o) this.setAttr(k, o[k]); });
 def(E, 'getAttr', function (this: Element, k: string) { return this.getAttribute(k); });
+def(E, 'setChildrenInPlace', function (this: Element, children: Node[]) {
+	// Reuse nodes already in place; only move/insert/remove what changed.
+	const want = new Set(children);
+	for (const c of [...this.childNodes]) if (!want.has(c)) c.remove();
+	children.forEach((c, i) => {
+		if (this.childNodes[i] !== c) this.insertBefore(c, this.childNodes[i] ?? null);
+	});
+});
 def(E, 'find', function (this: Element, s: string) { return this.querySelector(s); });
 def(E, 'findAll', function (this: Element, s: string) { return Array.from(this.querySelectorAll(s)); });
 
 const H = HTMLElement.prototype;
+def(H, 'setCssStyles', function (this: HTMLElement, styles: Partial<CSSStyleDeclaration>) { Object.assign(this.style, styles); });
+def(H, 'setCssProps', function (this: HTMLElement, props: Record<string, string>) {
+	for (const [k, v] of Object.entries(props)) this.style.setProperty(k.startsWith('--') ? k : k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()), v);
+});
+def(H, 'getCssPropertyValue', function (this: HTMLElement, prop: string, pseudo?: string) { return getComputedStyle(this, pseudo).getPropertyValue(prop); });
+def(H, 'isActiveElement', function (this: HTMLElement) { return this.ownerDocument.activeElement === this; });
 def(H, 'show', function (this: HTMLElement) { this.style.removeProperty('display'); });
 def(H, 'hide', function (this: HTMLElement) { this.style.display = 'none'; });
 def(H, 'toggle', function (this: any, show: boolean) { show ? this.show() : this.hide(); });

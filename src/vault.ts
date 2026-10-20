@@ -111,7 +111,12 @@ export class Vault extends Events {
 	}
 
 	async loadConfig(): Promise<void> {
-		this.config = { ...(await this.readConfigJson('app')), ...(await this.readConfigJson('appearance')) };
+		const app = await this.readConfigJson('app');
+		const appearance = await this.readConfigJson('appearance');
+		this.config = { ...app, ...appearance };
+		// Obsidian always has these files; plugins read them directly.
+		if (!app) await this.writeConfigJson('app', {});
+		if (!appearance) await this.writeConfigJson('appearance', {});
 	}
 
 	getConfig(key: string): any {

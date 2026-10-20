@@ -24,6 +24,7 @@ export class Events {
 	}
 
 	offref(ref: EventRef): void {
+		if (!ref) return; // plugins sometimes unregister refs they never got
 		const list = this._events[ref.name];
 		if (list) this._events[ref.name] = list.filter((r) => r !== ref);
 	}

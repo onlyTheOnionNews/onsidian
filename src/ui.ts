@@ -428,14 +428,17 @@ export class Menu extends Component {
 
 // ---------------- Setting + controls ----------------
 
-abstract class ValueComponent<T> {
+export class BaseComponent {
 	disabled = false;
+	setDisabled(d: boolean): this { this.disabled = d; return this; }
+	then(cb: (c: this) => any): this { cb(this); return this; }
+}
+
+export abstract class ValueComponent<T> extends BaseComponent {
 	protected changeCb?: (v: T) => any;
 	abstract getValue(): T;
 	abstract setValue(v: T): this;
 	onChange(cb: (v: T) => any): this { this.changeCb = cb; return this; }
-	setDisabled(d: boolean): this { this.disabled = d; return this; }
-	then(cb: (c: this) => any): this { cb(this); return this; }
 }
 
 export class ToggleComponent extends ValueComponent<boolean> {
@@ -467,17 +470,80 @@ export class ToggleComponent extends ValueComponent<boolean> {
 	setTooltip(t: string): this { this.toggleEl.setAttr('aria-label', t); return this; }
 }
 
-export class TextComponent extends ValueComponent<string> {
-	inputEl: HTMLInputElement;
-	constructor(containerEl: HTMLElement) {
+export abstract class AbstractTextComponent<E extends HTMLInputElement | HTMLTextAreaElement> extends ValueComponent<string> {
+	constructor(public inputEl: E) {
 		super();
-		this.inputEl = containerEl.createEl('input', { type: 'text' });
-		this.inputEl.addEventListener('input', () => this.changeCb?.(this.inputEl.value));
+		inputEl.addEventListener('input', () => this.onChanged());
 	}
 	getValue(): string { return this.inputEl.value; }
 	setValue(v: string): this { this.inputEl.value = v; return this; }
 	setPlaceholder(p: string): this { this.inputEl.placeholder = p; return this; }
 	setDisabled(d: boolean): this { this.inputEl.disabled = d; return super.setDisabled(d); }
+	onChanged(): void { this.changeCb?.(this.inputEl.value); }
+}
+
+export class TextComponent extends AbstractTextComponent<HTMLInputElement> {
+	constructor(containerEl: HTMLElement) {
+		super(containerEl.createEl('input', { type: 'text' }));
+	}
+}
+
+export class SearchComponent extends AbstractTextComponent<HTMLInputElement> {
+	clearButtonEl: HTMLElement;
+	constructor(containerEl: HTMLElement) {
+		const wrap = containerEl.createDiv('search-input-container');
+		super(wrap.createEl('input', { type: 'search', attr: { spellcheck: 'false' } }));
+		this.clearButtonEl = wrap.createDiv({ cls: 'search-input-clear-button', attr: { 'aria-label': 'Clear search' } });
+		this.clearButtonEl.addEventListener('click', () => {
+			this.setValue('');
+			this.onChanged();
+			this.inputEl.focus();
+		});
+	}
+}
+
+export class MomentFormatComponent extends TextComponent {
+	sampleEl: HTMLElement = createSpan();
+	private defaultFormat = '';
+	setDefaultFormat(f: string): this { this.defaultFormat = f; this.inputEl.placeholder = f; this.updateSample(); return this; }
+	setSampleEl(el: HTMLElement): this { this.sampleEl = el; this.updateSample(); return this; }
+	setValue(v: string): this { super.setValue(v); this.updateSample(); return this; }
+	onChanged(): void { this.updateSample(); super.onChanged(); }
+	updateSample(): void { this.sampleEl.setText((window as any).moment().format(this.getValue() || this.defaultFormat)); }
+}
+
+export class ProgressBarComponent extends ValueComponent<number> {
+	private lineEl: HTMLElement;
+	private value = 0;
+	constructor(containerEl: HTMLElement) {
+		super();
+		this.lineEl = containerEl.createDiv('setting-progress-bar').createDiv('setting-progress-bar-inner');
+	}
+	getValue(): number { return this.value; }
+	setValue(v: number): this { this.value = v; this.lineEl.style.width = `${Math.max(0, Math.min(100, v))}%`; return this; }
+}
+
+/** Secrets (API keys etc.) live in this device's localStorage, never in the vault, as Obsidian keeps them outside it. */
+export class SecretStorage {
+	private prefix: string;
+	constructor(vaultId: string) { this.prefix = `obsidian-online:secret:${vaultId}:`; }
+	setSecret(id: string, secret: string): void { try { localStorage.setItem(this.prefix + id, secret); } catch { /* storage blocked */ } }
+	getSecret(id: string): string | null { try { return localStorage.getItem(this.prefix + id); } catch { return null; } }
+	listSecrets(): string[] {
+		try { return Object.keys(localStorage).filter((k) => k.startsWith(this.prefix)).map((k) => k.slice(this.prefix.length)); } catch { return []; }
+	}
+}
+
+export class SecretComponent extends BaseComponent {
+	private inputEl: HTMLInputElement;
+	private cb?: (value: string | null) => unknown;
+	constructor(_app: App, containerEl: HTMLElement) {
+		super();
+		this.inputEl = containerEl.createEl('input', { type: 'password', attr: { autocomplete: 'off' } });
+		this.inputEl.addEventListener('change', () => this.cb?.(this.inputEl.value || null));
+	}
+	setValue(value: string): this { this.inputEl.value = value; return this; }
+	onChange(cb: (value: string | null) => unknown): this { this.cb = cb; return this; }
 }
 
 export class TextAreaComponent extends ValueComponent<string> {
@@ -541,6 +607,7 @@ export class ButtonComponent {
 	setButtonText(t: string): this { this.buttonEl.setText(t); return this; }
 	setIcon(icon: string): this { setIcon(this.buttonEl, icon); return this; }
 	setCta(): this { this.buttonEl.addClass('mod-cta'); return this; }
+	setClass(cls: string): this { this.buttonEl.addClass(cls); return this; }
 	setWarning(): this { this.buttonEl.addClass('mod-warning'); return this; }
 	setTooltip(t: string): this { this.buttonEl.setAttr('aria-label', t); return this; }
 	setDisabled(d: boolean): this { this.buttonEl.disabled = d; return this; }
@@ -556,6 +623,37 @@ export class ExtraButtonComponent {
 	setDisabled(d: boolean): this { this.extraSettingsEl.toggleClass('is-disabled', d); return this; }
 	onClick(cb: () => any): this { this.extraSettingsEl.addEventListener('click', cb); return this; }
 	then(cb: (c: this) => any): this { cb(this); return this; }
+}
+
+export class SettingGroup {
+	listEl: HTMLElement;
+	private el: HTMLElement;
+	constructor(containerEl: HTMLElement) {
+		this.el = containerEl.createDiv('setting-group');
+		this.listEl = this.el.createDiv('setting-items');
+	}
+	setHeading(text: string | DocumentFragment): this {
+		const h = createDiv('setting-item setting-item-heading');
+		h.setText(text);
+		this.el.prepend(h);
+		return this;
+	}
+	addClass(...classes: string[]): this {
+		this.el.addClass(...classes);
+		return this;
+	}
+	addSetting(cb: (setting: Setting) => void): this {
+		cb(new Setting(this.listEl));
+		return this;
+	}
+	addSearch(cb: (component: SearchComponent) => any): this {
+		cb(new SearchComponent(this.el));
+		return this;
+	}
+	addExtraButton(cb: (component: ExtraButtonComponent) => any): this {
+		cb(new ExtraButtonComponent(this.el));
+		return this;
+	}
 }
 
 export class Setting {
@@ -596,6 +694,38 @@ export class Setting {
 	addColorPicker(cb: (c: ColorComponent) => any): this { return this.add(new ColorComponent(this.controlEl), cb); }
 	addButton(cb: (c: ButtonComponent) => any): this { return this.add(new ButtonComponent(this.controlEl), cb); }
 	addExtraButton(cb: (c: ExtraButtonComponent) => any): this { return this.add(new ExtraButtonComponent(this.controlEl), cb); }
+}
+
+export class ConfirmationButton extends ButtonComponent {
+	setInitialFocus(): this { setTimeout(() => this.buttonEl.focus()); return this; }
+	setSecondary(): this { this.buttonEl.removeClass('mod-cta'); return this; }
+	setCancel(): this { this.buttonEl.addClass('mod-cancel'); return this; }
+}
+
+export class ConfirmationModal extends Modal {
+	buttonContainerEl: HTMLElement;
+	constructor(app: App) {
+		super(app);
+		this.buttonContainerEl = this.modalEl.createDiv('modal-button-container');
+	}
+	addClass(cls: string): this { this.modalEl.addClass(cls); return this; }
+	addCheckbox(label: string, cb: (value: boolean) => any): this {
+		const l = this.contentEl.createEl('label', { cls: 'mod-checkbox' });
+		const box = l.createEl('input', { type: 'checkbox' });
+		l.appendText(` ${label}`);
+		box.addEventListener('change', () => cb(box.checked));
+		return this;
+	}
+	addButton(cb: (btn: ConfirmationButton) => any): this {
+		const b = new ConfirmationButton(this.buttonContainerEl).setCta();
+		b.buttonEl.addEventListener('click', () => this.close());
+		cb(b);
+		return this;
+	}
+	addCancelButton(text = 'Cancel'): this {
+		new ConfirmationButton(this.buttonContainerEl).setButtonText(text).setCancel().onClick(() => this.close());
+		return this;
+	}
 }
 
 /** One-line text prompt / confirm, built on Modal (replaces window.prompt/confirm). */

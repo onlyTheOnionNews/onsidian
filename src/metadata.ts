@@ -4,7 +4,7 @@
 import type { CachedMetadata } from 'obsidian';
 import { dirname, join } from './adapters';
 import { Events } from './events';
-import { getLinkpath, parseMetadata } from './parse';
+import { getAllTags, getLinkpath, parseMetadata } from './parse';
 import { TAbstractFile, TFile, Vault, normalizePath } from './vault';
 
 type Parse = (text: string) => Promise<CachedMetadata>;
@@ -94,6 +94,24 @@ export class MetadataCache extends Events {
 			if (c) this.caches.set(f.path, c);
 			this.resolveAll();
 		});
+	}
+
+	/** Internal Obsidian name (plugins patch or call it): re-index one file. */
+	computeFileMetadataAsync(file: TFile): Promise<void> {
+		return this.index(file, true);
+	}
+
+	/** Internal Obsidian name (plugins patch it): recompute link resolution for one source path. */
+	resolveLinks(path: string): void {
+		const cache = this.caches.get(path);
+		if (cache) this.resolveFile(path, cache);
+	}
+
+	/** Internal Obsidian API: every tag in the vault with its count. */
+	getTags(): Record<string, number> {
+		const out: Record<string, number> = {};
+		for (const cache of this.caches.values()) for (const t of getAllTags(cache) ?? []) out[t] = (out[t] ?? 0) + 1;
+		return out;
 	}
 
 	getFileCache(file: TFile): CachedMetadata | null {

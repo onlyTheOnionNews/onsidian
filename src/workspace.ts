@@ -495,6 +495,10 @@ export class WorkspaceLeaf extends WorkspaceItem {
 		await this.setViewState({ type, state: { ...openState?.state, file: file.path }, active: openState?.active ?? true }, openState?.eState);
 	}
 
+	/** Views load eagerly on the web, so leaves are never deferred. */
+	get isDeferred(): boolean { return false; }
+	async loadIfDeferred(): Promise<void> {}
+
 	togglePinned(): void { this.setPinned(!this.pinned); }
 
 	setPinned(pinned: boolean): void {
@@ -562,6 +566,23 @@ export class Workspace extends Events {
 	editorExtensions: any[] = [];
 	/** Plugin EditorSuggests, tried in order on each edit (`workspace.editorSuggest.suggests` in Obsidian). */
 	editorSuggest: { suggests: any[] } = { suggests: [] };
+	/** Right ribbon (deprecated in Obsidian; kept for plugins that still add to it, not shown). */
+	rightRibbon = new WorkspaceRibbon();
+	/** Pop-out windows (none on the web yet). */
+	floatingSplit = { children: [] as WorkspaceItem[] };
+
+	/** Obsidian URI handlers by action (Obsidian keeps these on the workspace). */
+	get protocolHandlers(): Map<string, (params: Record<string, string>) => any> {
+		return this.app.protocolHandlers;
+	}
+
+	unregisterHoverLinkSource(id: string): void {
+		delete this.hoverLinkSources[id];
+	}
+
+	/** CodeMirror 5 editors: none exist here (the editor is CM6). */
+	iterateCodeMirrors(_cb: (cm: unknown) => any): void {}
+
 	/** Plugin.registerHoverLinkSource entries (for page-preview settings). */
 	hoverLinkSources: Record<string, { display: string; defaultMod: boolean }> = {};
 

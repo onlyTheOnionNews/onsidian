@@ -5,11 +5,13 @@ import { registerCoreCommands } from './commands';
 import { CustomCss } from './community';
 import { InternalPlugins } from './coreplugins';
 import { FileManager } from './filemanager';
-import { Commands, Keymap, Scope } from './keymap';
+import { Commands, Keymap, Scope, hotkeyLabel } from './keymap';
 import { pluginRequire } from './api';
 import { MetadataCache } from './metadata';
 import { PluginManager } from './plugins';
 import { SettingsModal } from './modals';
+import { markdownEmbedCreator } from './render';
+import { SecretStorage } from './ui';
 import { FileExplorerView } from './views/explorer';
 import { MarkdownView } from './views/markdown';
 import { BookmarksPlugin } from './views/bookmarks';
@@ -32,6 +34,18 @@ export class App {
 	internalPlugins: InternalPlugins;
 	plugins: PluginManager;
 	customCss: CustomCss;
+	/** Plugin secrets, device-local (never written to the vault). */
+	secretStorage: SecretStorage;
+	/** Internal registry plugins use to render custom file types as embeds (Kanban, Excalidraw…). */
+	embedRegistry = {
+		embedByExtension: {} as Record<string, (ctx: { app: App; containerEl: HTMLElement; sourcePath: string; linktext?: string }, file: unknown, subpath: string) => unknown>,
+		registerExtension(ext: string, creator: any) { this.embedByExtension[ext] = creator; },
+		registerExtensions(exts: string[], creator: any) { for (const e of exts) this.embedByExtension[e] = creator; },
+		unregisterExtension(ext: string) { delete this.embedByExtension[ext]; },
+		unregisterExtensions(exts: string[]) { for (const e of exts) delete this.embedByExtension[e]; },
+		isExtensionRegistered(ext: string) { return ext in this.embedByExtension; },
+		getEmbedCreator(file: { extension: string }) { return this.embedByExtension[file.extension] ?? null; },
+	};
 	/** Obsidian URI actions registered by plugins (registerObsidianProtocolHandler). */
 	protocolHandlers = new Map<string, (params: Record<string, string>) => any>();
 	/** Root element: .app-container > .horizontal-main-container > .workspace, plus the status bar. */
@@ -48,6 +62,8 @@ export class App {
 		this.internalPlugins = new InternalPlugins(this);
 		this.plugins = new PluginManager(this, appId, pluginRequire);
 		this.customCss = new CustomCss(this);
+		this.secretStorage = new SecretStorage(appId);
+		this.embedRegistry.registerExtension('md', Object.assign(markdownEmbedCreator, { builtin: true }));
 		for (const P of [GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin]) {
 			this.internalPlugins.add(new P(this));
 		}
@@ -72,6 +88,7 @@ export class App {
 		this.commands.customKeys = (await this.vault.readConfigJson('hotkeys')) ?? {};
 		applyAppearance(this.vault);
 		await this.customCss.load();
+		this.propertyTypes = (await this.vault.readConfigJson('types'))?.types ?? {};
 		this.vault.on('config-changed', () => applyAppearance(this.vault));
 		await this.vault.load();
 		// The explorer claims the first sidebar tab before plugins add theirs (onLayoutReady runs in order).
@@ -103,6 +120,100 @@ export class App {
 		window.addEventListener('beforeunload', (e) => {
 			if (flush()) e.preventDefault(); // the browser asks "Leave site?" while the write finishes
 		});
+	}
+
+	isMobile = false;
+
+	/** Internal: status bar wrapper (`app.statusBar.containerEl`). */
+	get statusBar(): { containerEl: HTMLElement } {
+		return { containerEl: this.statusBarEl };
+	}
+
+	/** Internal: hotkey lookups (`app.hotkeyManager`), backed by app.commands. */
+	get hotkeyManager() {
+		const c = this.commands;
+		const save = () => void this.vault.writeConfigJson('hotkeys', c.customKeys);
+		return {
+			customKeys: c.customKeys,
+			getHotkeys: (id: string) => c.customKeys[id],
+			getDefaultHotkeys: (id: string) => c.commands[id]?.hotkeys ?? [],
+			setHotkeys: (id: string, keys: any[]) => {
+				c.customKeys[id] = keys;
+				save();
+			},
+			removeHotkeys: (id: string) => {
+				delete c.customKeys[id];
+				save();
+			},
+			printHotkeyForCommand: (id: string) => c.getHotkeys(id).map((h) => hotkeyLabel(h)).join(', '),
+			bake() {},
+			save,
+		};
+	}
+
+	/** Property name → type, from .obsidian/types.json. */
+	propertyTypes: Record<string, string> = {};
+
+	/**
+	 * Internal: property names and types (`app.metadataTypeManager`). Types come from .obsidian/types.json, else are
+	 * inferred from values. setType() writes types.json.
+	 */
+	get metadataTypeManager() {
+		const app = this;
+		const infer = (v: unknown) =>
+			Array.isArray(v) ? 'multitext'
+				: typeof v === 'number' ? 'number'
+				: typeof v === 'boolean' ? 'checkbox'
+				: typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v) ? 'datetime'
+				: typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? 'date'
+				: 'text';
+		return {
+			types: this.propertyTypes,
+			properties: {} as Record<string, unknown>,
+			getAllProperties() {
+				const out: Record<string, { name: string; type: string; count: number }> = {};
+				for (const f of app.vault.getMarkdownFiles()) {
+					for (const [k, v] of Object.entries(app.metadataCache.getFileCache(f)?.frontmatter ?? {})) {
+						const key = k.toLowerCase();
+						out[key] ??= { name: k, type: app.propertyTypes[key] ?? infer(v), count: 0 };
+						out[key].count++;
+					}
+				}
+				return out;
+			},
+			getPropertyInfo(name: string) {
+				return this.getAllProperties()[name.toLowerCase()] ?? null;
+			},
+			getTypeInfo(name: string) {
+				return { expected: { type: app.propertyTypes[name.toLowerCase()] ?? 'text' } };
+			},
+			setType(name: string, type: string) {
+				app.propertyTypes[name.toLowerCase()] = type;
+				void app.vault.writeConfigJson('types', { types: app.propertyTypes });
+			},
+			on: () => ({}),
+			offref() {},
+		};
+	}
+
+	showReleaseNotes(): void {}
+	runOpeningBehavior(): void {}
+
+	/** Internal Obsidian API many plugins use: per-vault localStorage (JSON values). */
+	loadLocalStorage(key: string): any {
+		try {
+			const v = localStorage.getItem(`${this.appId}-${key}`);
+			return v === null ? null : JSON.parse(v);
+		} catch {
+			return null;
+		}
+	}
+
+	saveLocalStorage(key: string, value: unknown): void {
+		try {
+			if (value === undefined || value === null) localStorage.removeItem(`${this.appId}-${key}`);
+			else localStorage.setItem(`${this.appId}-${key}`, JSON.stringify(value));
+		} catch { /* storage blocked */ }
 	}
 
 	addStatusBarItem(): HTMLElement {

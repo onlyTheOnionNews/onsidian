@@ -5,6 +5,7 @@ import { Component } from './events';
 import type { Command } from './keymap';
 import { MarkdownPreviewRenderer, type CodeBlockProcessor, type MarkdownPostProcessor } from './render';
 import { SettingTab } from './modals';
+import { trackMissing } from './api';
 import { Notice, type ViewCreator } from './workspace';
 
 export interface PluginManifest {
@@ -152,6 +153,16 @@ export abstract class PluginSettingTab extends SettingTab {
 		this.id = plugin.manifest.id;
 		this.name = plugin.manifest.name;
 	}
+
+	getControlValue(key: string): unknown {
+		return (this.plugin.settings as any)?.[key];
+	}
+
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		const s = (this.plugin.settings ??= {}) as Record<string, unknown>;
+		s[key] = value;
+		await this.plugin.saveData(s);
+	}
 }
 
 // ---------------- Loader ----------------
@@ -191,6 +202,17 @@ export async function evaluateCommonJs(code: string, name: string, requireFn: (i
 		pending.delete(key);
 		URL.revokeObjectURL(url);
 	}
+}
+
+/** In diagnose mode, plugins get an `app` whose managers report reads of members we don't implement. */
+function diagnosticApp(app: App): App {
+	if (!(window as any).__obsidianOnlineDiagnose) return app;
+	const wrapped = new Map<string, unknown>();
+	for (const k of ['workspace', 'vault', 'metadataCache', 'fileManager', 'plugins', 'internalPlugins', 'commands', 'setting', 'viewRegistry', 'keymap']) {
+		wrapped.set(k, trackMissing((app as any)[k], `app.${k}`));
+	}
+	const tracked = trackMissing(app, 'app');
+	return new Proxy(tracked, { get: (t, p, r) => (typeof p === 'string' && wrapped.has(p) ? wrapped.get(p) : Reflect.get(t, p, r)) });
 }
 
 // ---------------- Manager (`app.plugins`) ----------------
@@ -264,7 +286,7 @@ export class PluginManager {
 			const exported = await evaluateCommonJs(code, id, this.requireFn);
 			const PluginClass = exported?.default ?? exported;
 			if (typeof PluginClass !== 'function') throw new Error('main.js does not export a Plugin class.');
-			const plugin: Plugin = new PluginClass(this.app, m);
+			const plugin: Plugin = new PluginClass(diagnosticApp(this.app), m);
 			this.plugins[id] = plugin;
 			await this.loadStyles(m);
 			await plugin.load();

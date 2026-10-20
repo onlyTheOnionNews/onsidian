@@ -48,6 +48,8 @@ export const editorInfoField = StateField.define<MarkdownView | null>({ create: 
 export const editorViewField = editorInfoField;
 /** obsidian.d.ts: true when the editor is in Live Preview. */
 export const editorLivePreviewField = StateField.define<boolean>({ create: () => false, update: (v) => v });
+/** obsidian.d.ts: the EditorView owning a state. */
+export const editorEditorField = StateField.define<EditorView | null>({ create: () => null, update: (v) => v });
 
 export class MarkdownView extends TextFileView {
 	icon = 'file-text';
@@ -176,6 +178,11 @@ export class MarkdownView extends TextFileView {
 		this.dirty = false;
 	}
 
+	/** obsidian.d.ts MarkdownView.getMode(). */
+	getMode(): MarkdownViewMode {
+		return this.mode;
+	}
+
 	setMode(mode: MarkdownViewMode): void {
 		if (mode === this.mode) return;
 		this.mode = mode;
@@ -235,6 +242,7 @@ export class MarkdownView extends TextFileView {
 				this.lp.of(this.lpExtension()),
 				editorInfoField.init(() => this),
 				editorLivePreviewField.init(() => this.livePreview),
+				editorEditorField.init(() => this.cm ?? null),
 				// Plugin editor extensions (Plugin.registerEditorExtension); refreshed by workspace.updateOptions().
 				this.pluginExt.of(this.app.workspace.editorExtensions.slice()),
 				EditorView.updateListener.of((u) => {
