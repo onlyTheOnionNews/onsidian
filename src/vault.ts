@@ -78,6 +78,8 @@ export class Vault extends Events {
 	private files = new Map<string, TAbstractFile>();
 	private root: TFolder;
 	private contentCache = new Map<string, string>();
+	/** blob: URLs for binary files, keyed by path; `mtime` invalidates stale entries. */
+	private resourceUrls = new Map<string, { mtime: number; url: Promise<string> }>();
 
 	constructor(public adapter: BaseAdapter) {
 		super();
@@ -243,8 +245,35 @@ export class Vault extends Events {
 		return this.adapter.readBinary(file.path);
 	}
 
+	/**
+	 * Sync API: the cached blob URL if ready, else '' (and starts loading it). Our renderer uses getResourceUrl instead.
+	 * ponytail: blob URLs need an async read first. A Service Worker route (phase 5, PWA) can make this always-sync.
+	 */
 	getResourcePath(file: TFile): string {
-		return this.adapter.getResourcePath(file.path);
+		void this.getResourceUrl(file);
+		return this.readyResourceUrls.get(file.path) ?? '';
+	}
+
+	private readyResourceUrls = new Map<string, string>();
+
+	async getResourceUrl(file: TFile): Promise<string> {
+		const cached = this.resourceUrls.get(file.path);
+		if (cached?.mtime === file.stat.mtime) return cached.url;
+		this.revokeResource(file.path);
+		const url = this.adapter.readBinary(file.path).then((data) => {
+			const u = URL.createObjectURL(new Blob([data], { type: mimeType(file.extension) }));
+			this.readyResourceUrls.set(file.path, u);
+			return u;
+		});
+		this.resourceUrls.set(file.path, { mtime: file.stat.mtime, url });
+		return url;
+	}
+
+	private revokeResource(path: string): void {
+		const u = this.readyResourceUrls.get(path);
+		if (u) URL.revokeObjectURL(u);
+		this.readyResourceUrls.delete(path);
+		this.resourceUrls.delete(path);
 	}
 
 	// ---------- write ----------
@@ -321,6 +350,7 @@ export class Vault extends Events {
 			this.files.delete(f.path);
 			const cached = this.contentCache.get(f.path);
 			this.contentCache.delete(f.path);
+			this.revokeResource(f.path);
 			setPath(f, path);
 			this.files.set(path, f);
 			if (cached !== undefined) this.contentCache.set(path, cached);
@@ -403,6 +433,7 @@ export class Vault extends Events {
 		this.detachFromParent(f);
 		this.files.delete(f.path);
 		this.contentCache.delete(f.path);
+		this.revokeResource(f.path);
 		this.trigger('delete', f);
 	}
 }
@@ -410,4 +441,15 @@ export class Vault extends Events {
 /** Dot-files/folders (incl. .obsidian, .trash) are not part of the vault tree, as in Obsidian. */
 function isHidden(path: string): boolean {
 	return basename(path).startsWith('.');
+}
+
+const MIME: Record<string, string> = {
+	png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', svg: 'image/svg+xml',
+	webp: 'image/webp', avif: 'image/avif', mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', ogg: 'audio/ogg',
+	flac: 'audio/flac', '3gp': 'audio/3gpp', mp4: 'video/mp4', webm: 'video/webm', ogv: 'video/ogg', mov: 'video/quicktime',
+	mkv: 'video/x-matroska', pdf: 'application/pdf',
+};
+
+export function mimeType(ext: string): string {
+	return MIME[ext.toLowerCase()] ?? 'application/octet-stream';
 }

@@ -655,13 +655,23 @@ export class Workspace extends Events {
 		return v instanceof type ? v : null;
 	}
 
-	async openLinkText(linktext: string, sourcePath: string, newLeaf?: PaneType | boolean): Promise<void> {
+	async openLinkText(linktext: string, sourcePath: string, newLeaf?: PaneType | boolean, openViewState?: { active?: boolean; state?: any; eState?: any }): Promise<void> {
 		const { vault, metadataCache } = this.app;
-		const path = linktext.split('#')[0];
-		let file = metadataCache.getFirstLinkpathDest(path, sourcePath);
+		const hash = linktext.indexOf('#');
+		const path = hash < 0 ? linktext : linktext.slice(0, hash);
+		const subpath = hash < 0 ? '' : linktext.slice(hash);
+		let file = path ? metadataCache.getFirstLinkpathDest(path, sourcePath) : vault.getFileByPath(sourcePath);
 		// Clicking an unresolved link creates the note, as in Obsidian.
 		if (!file && path) file = await vault.create(path.endsWith('.md') ? path : `${path}.md`, '');
-		if (file) await this.getLeaf(newLeaf).openFile(file);
+		if (!file) return;
+		const eState = subpath ? { ...openViewState?.eState, subpath } : openViewState?.eState;
+		// Same-file heading link in the current view: just scroll.
+		const current = this.getMostRecentLeaf();
+		if (!path && !newLeaf && current && (current.view as FileView)?.file === file) {
+			current.view.setEphemeralState(eState);
+			return;
+		}
+		await this.getLeaf(newLeaf).openFile(file, { ...openViewState, eState });
 	}
 
 	// ----- internal notifications from leaves -----

@@ -2,6 +2,7 @@
 import './dom';
 import './theme.css';
 import './ui.css';
+import './markdown.css';
 import { App } from './app';
 import { applyAppearance } from './appearance';
 import { probeCaps, type Caps } from './caps';
