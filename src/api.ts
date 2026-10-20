@@ -13,6 +13,7 @@ import { dump as dumpYaml, load as loadYaml, CORE_SCHEMA } from 'js-yaml';
 import { icons as lucideIcons } from 'lucide';
 import moment from 'moment';
 import { BaseAdapter } from './adapters';
+import { loadPdfJs } from './views/pdf';
 import { BasesView } from './bases/base';
 import {
 	BooleanValue, DateValue, DurationValue, FileValue, HTMLValue, IconValue, ImageValue, LinkValue, ListValue, NotNullValue, NullValue,
@@ -270,9 +271,7 @@ export function getIconIds(): string[] {
 /** ViewPlugin exposing { mousedown } (Live Preview selection state). */
 export const livePreviewState = cmView.ViewPlugin.define(() => ({ mousedown: false }));
 
-export async function loadPdfJs(): Promise<never> {
-	throw new Error('pdf.js is not bundled yet (phase 4).');
-}
+
 
 /** The module object handed to plugins. Values are what the API exports at runtime. */
 export const obsidianModule = {

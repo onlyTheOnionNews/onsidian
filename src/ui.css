@@ -641,3 +641,23 @@ body {
 .bases-embed { border: var(--bases-embed-border-width) solid var(--bases-embed-border-color); border-radius: var(--bases-embed-border-radius); max-height: 500px; display: flex; flex-direction: column; }
 .bases-source-editor { flex: 1; width: 100%; font-family: var(--font-monospace); font-size: var(--font-ui-small); border: none; padding: var(--size-4-4); resize: none; background: var(--background-primary); }
 .bases-plugin-view { height: 100%; }
+
+/* ---------------- PDF ---------------- */
+body {
+	--popover-pdf-width: 450px;
+	--popover-pdf-height: 400px;
+}
+.pdf-view { display: flex; flex-direction: column; padding: 0; }
+.pdf-toolbar { display: flex; align-items: center; gap: var(--size-4-2); padding: var(--size-4-1) var(--size-4-3); border-bottom: var(--border-width) solid var(--background-modifier-border); font-size: var(--font-ui-small); }
+.pdf-page-input { width: 56px; }
+.pdf-page-count { color: var(--text-muted); margin-right: auto; }
+.pdf-pages { flex: 1; overflow: auto; background: var(--background-secondary); padding: var(--size-4-4) 0; display: flex; flex-direction: column; align-items: center; gap: var(--size-4-3); }
+.pdf-page { position: relative; flex-shrink: 0; background: white; box-shadow: var(--shadow-s); }
+.pdf-page canvas { display: block; }
+.pdf-embed .pdf-page { max-width: 100%; }
+/* pdf.js text layer: transparent, positioned spans over the canvas so text can be selected and found. */
+.textLayer { position: absolute; inset: 0; overflow: clip; line-height: 1; text-align: initial; transform-origin: 0 0; z-index: 0; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); }
+.textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.textLayer > :not(.markedContent), .textLayer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.textLayer .markedContent { display: contents; }
+.textLayer ::selection { background: rgba(0, 100, 255, 0.25); }

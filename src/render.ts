@@ -445,7 +445,11 @@ async function renderEmbeds(app: App, root: HTMLElement, sourcePath: string, com
 			const child = creator({ app, containerEl: el, sourcePath, linktext: src, depth: chain.length, chain } as any, file, subpath) as any;
 			if (child) {
 				component.addChild(child);
-				await child.loadFile?.();
+				// Note embeds are awaited (fast; heading scroll needs them). Other types (PDF pages, canvases, bases, plugin
+				// embeds) fill in when ready, so one slow embed doesn't hold back the whole note.
+				const loading = child.loadFile?.();
+				if (ext === 'md') await loading;
+				else void Promise.resolve(loading).catch((e: Error) => el.setText(`Couldn't load ${file.name}: ${e?.message ?? e}`));
 			}
 			return;
 		}
