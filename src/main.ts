@@ -8,7 +8,8 @@ import { applyAppearance } from './appearance';
 import { ButtonComponent, Modal } from './ui';
 import { probeCaps, type Caps } from './caps';
 import {
-	addBrowserVault, addFolderVault, browserVaultKind, forgetVault, listVaults, lockVault, openAdapter, rememberFileCount,
+	VaultBusyError, addBrowserVault, addFolderVault, browserVaultKind, forgetVault, listVaults, lockVault, onTakeoverRequest, openAdapter, rememberFileCount,
+	takeOverVault, type VaultLock,
 	type VaultEntry, type VaultKind,
 } from './vaults';
 
@@ -38,8 +39,9 @@ function storageSet(key: string, value: string): void {
 	try { localStorage.setItem(key, value); } catch { /* private mode: just don't remember */ }
 }
 
-async function openVault(v: VaultEntry, caps: Caps, isNew = false): Promise<void> {
-	if (!(await lockVault(v.id))) throw new Error(`"${v.name}" is already open in another tab.`);
+async function openVault(v: VaultEntry, caps: Caps, isNew = false, lock?: VaultLock): Promise<void> {
+	lock ??= (await lockVault(v.id)) ?? undefined;
+	if (!lock) throw new VaultBusyError(v.name);
 	const adapter = await openAdapter(v);
 	if (isNew && v.kind !== 'fs') await adapter.write('Welcome.md', WELCOME);
 	const app = new App(adapter, caps.workers, v.id);
@@ -48,6 +50,9 @@ async function openVault(v: VaultEntry, caps: Caps, isNew = false): Promise<void
 	document.title = `${v.name} - obsidian-online`;
 	await app.load();
 	if (v.kind !== 'mem') storageSet(LAST_VAULT_KEY, v.id);
+	// Browser vaults live in best-effort storage the browser may clear; ask for persistent storage (Chrome grants it
+	// silently to engaged/installed sites, Firefox prompts). ponytail: no UI if denied; the cleared-storage check below covers it.
+	if (v.kind === 'opfs' || v.kind === 'idb') void navigator.storage?.persist?.();
 
 	// A vault that had files but opens empty: the browser cleared its storage (eviction, "clear site data").
 	const count = app.vault.getFiles().length;
@@ -69,6 +74,18 @@ async function openVault(v: VaultEntry, caps: Caps, isNew = false): Promise<void
 	}
 	window.addEventListener('pagehide', () => void rememberFileCount(v, app.vault.getFiles().length));
 
+	// Another tab wants this vault: save, let go of it, and say where it went.
+	onTakeoverRequest(v.id, async () => {
+		await app.flushSaves();
+		lock!.release();
+		const msg = createDiv('vault-picker');
+		const card = msg.createDiv('vault-picker-card');
+		card.createEl('h1', { text: v.name });
+		card.createDiv({ text: 'This vault is now open in another tab.' });
+		card.createEl('button', { cls: 'mod-cta', text: 'Use it here' }).addEventListener('click', () => location.reload());
+		document.body.replaceChildren(msg);
+	});
+
 	const storage = app.addStatusBarItem();
 	storage.setText(KIND_LABEL[v.kind]);
 	if (v.kind === 'opfs' || v.kind === 'idb') {
@@ -86,7 +103,7 @@ async function openVault(v: VaultEntry, caps: Caps, isNew = false): Promise<void
 	}
 }
 
-async function showPicker(caps: Caps, error?: string): Promise<void> {
+async function showPicker(caps: Caps, error?: string, busy?: VaultEntry): Promise<void> {
 	const vaults = await listVaults(caps);
 	const root = createDiv('vault-picker');
 	document.body.replaceChildren(root);
@@ -94,14 +111,21 @@ async function showPicker(caps: Caps, error?: string): Promise<void> {
 	card.createEl('h1', { text: 'obsidian-online' });
 	if (error) card.createDiv({ cls: 'vault-picker-error', text: error });
 
-	const run = (fn: () => Promise<void>) => async () => {
+	const run = (fn: () => Promise<void>, v?: VaultEntry) => async () => {
 		try {
 			await fn();
 		} catch (e) {
 			if ((e as DOMException)?.name === 'AbortError') return; // user closed the folder picker
-			await showPicker(caps, String((e as Error)?.message ?? e));
+			await showPicker(caps, String((e as Error)?.message ?? e), e instanceof VaultBusyError ? v : undefined);
 		}
 	};
+
+	if (busy) {
+		card.createEl('button', { cls: 'mod-cta', text: `Use "${busy.name}" here` }).addEventListener('click', run(async () => {
+			const lock = await takeOverVault(busy.id);
+			await openVault(busy, caps, false, lock);
+		}, busy));
+	}
 
 	if (vaults.length) {
 		card.createEl('h2', { text: 'Your vaults' });
@@ -111,7 +135,7 @@ async function showPicker(caps: Caps, error?: string): Promise<void> {
 			const open = row.createEl('button', { cls: 'vault-list-item-open' });
 			open.createDiv({ cls: 'vault-list-item-title', text: v.name });
 			open.createDiv({ cls: 'vault-list-item-kind', text: KIND_LABEL[v.kind] });
-			open.addEventListener('click', run(() => openVault(v, caps)));
+			open.addEventListener('click', run(() => openVault(v, caps), v));
 			const forget = row.createEl('button', { cls: 'clickable-icon', text: '×', attr: { 'aria-label': v.kind === 'fs' ? 'Remove from list (folder is kept)' : 'Remove from list (data stays in browser storage)' } });
 			forget.addEventListener('click', run(async () => {
 				await forgetVault(v.id);
@@ -155,7 +179,7 @@ async function boot(): Promise<void> {
 		try {
 			return await openVault(entry, caps);
 		} catch (e) {
-			return showPicker(caps, String((e as Error)?.message ?? e));
+			return showPicker(caps, String((e as Error)?.message ?? e), e instanceof VaultBusyError ? entry : undefined);
 		}
 	}
 	await showPicker(caps);

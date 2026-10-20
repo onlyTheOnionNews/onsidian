@@ -5,16 +5,18 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { foldGutter, foldKeymap, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { Compartment, EditorState, StateField, type Extension } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, StateField, type Extension } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
+import moment from 'moment';
 import { Editor } from '../editor';
+import { merge3 } from '../merge';
 import { setIcon } from '../icons';
 import { livePreview } from '../livepreview';
 import { parseFrontmatterYaml, renderProperties } from '../properties';
 import { MarkdownRenderer } from '../render';
 import type { TAbstractFile, TFile } from '../vault';
-import { TextFileView, type WorkspaceLeaf } from '../workspace';
+import { Notice, TextFileView, type WorkspaceLeaf } from '../workspace';
 
 // Obsidian's source-mode class names, so themes styling `.cm-header-1`, `.cm-strong`… work unchanged.
 const obsidianClasses = HighlightStyle.define([
@@ -42,6 +44,9 @@ const obsidianClasses = HighlightStyle.define([
 ]);
 
 export type MarkdownViewMode = 'source' | 'preview';
+
+/** Marks editor changes that came from disk, so they don't count as unsaved local edits. */
+const externalChange = Annotation.define<boolean>();
 
 /** obsidian.d.ts: the MarkdownView/MarkdownFileInfo owning a CM6 state (editorViewField is its deprecated alias). */
 export const editorInfoField = StateField.define<MarkdownView | null>({ create: () => null, update: (v) => v });
@@ -246,7 +251,7 @@ export class MarkdownView extends TextFileView {
 				// Plugin editor extensions (Plugin.registerEditorExtension); refreshed by workspace.updateOptions().
 				this.pluginExt.of(this.app.workspace.editorExtensions.slice()),
 				EditorView.updateListener.of((u) => {
-					if (!u.docChanged) return;
+					if (!u.docChanged || u.transactions.some((t) => t.annotation(externalChange))) return;
 					this.dirty = true;
 					this.requestSave();
 					this.app.workspace.trigger('editor-change', this.editor, this);
@@ -286,13 +291,52 @@ export class MarkdownView extends TextFileView {
 	}
 
 	/**
-	 * Another writer changed the file (rescan of an FsAccess folder, a plugin, another view).
-	 * ponytail: unsaved local edits win and the next save overwrites; a 3-way merge comes with Relay/sync work (phase 5).
+	 * Another writer changed the file (desktop Obsidian on the same folder, another device, Relay, a plugin).
+	 * No local edits: take the new text. Local edits: three-way merge against the last saved text (`this.data`).
+	 * Overlapping edits keep the local side here and save the other side as a "conflicted copy" note.
 	 */
 	private async onExternalModify(): Promise<void> {
-		if (!this.file || this.dirty) return;
-		const data = await this.app.vault.cachedRead(this.file);
-		if (data !== this.getViewData()) this.setViewData(data, false);
+		const file = this.file;
+		if (!file) return;
+		const remote = await this.app.vault.cachedRead(file);
+		const local = this.getViewData();
+		if (remote === local) {
+			this.data = remote;
+			this.dirty = false;
+			return;
+		}
+		if (!this.dirty) {
+			this.applyExternalText(remote);
+			this.data = remote;
+			this.dirty = false;
+			if (this.mode === 'preview') void this.renderPreview();
+			return;
+		}
+		const { text, conflicts } = merge3(this.data, local, remote);
+		this.applyExternalText(text);
+		this.data = remote; // the merge base is now what's on disk
+		this.dirty = true;
+		this.requestSave();
+		if (conflicts) {
+			const dir = file.parent && !file.parent.isRoot() ? `${file.parent.path}/` : '';
+			const copy = await this.app.vault.create(`${dir}${file.basename} (conflicted copy ${moment().format('YYYY-MM-DD HHmmss')}).md`, remote);
+			new Notice(`"${file.basename}" was changed elsewhere while you edited it. Your version is kept; the other one was saved as "${copy.basename}".`, 12000);
+		}
+	}
+
+	/** Replace only the changed middle of the document, so the cursor and scroll stay put. */
+	private applyExternalText(text: string): void {
+		const cur = this.cm.state.doc.toString();
+		if (cur === text) return;
+		let start = 0;
+		while (start < cur.length && start < text.length && cur[start] === text[start]) start++;
+		let endCur = cur.length;
+		let endNew = text.length;
+		while (endCur > start && endNew > start && cur[endCur - 1] === text[endNew - 1]) {
+			endCur--;
+			endNew--;
+		}
+		this.cm.dispatch({ changes: { from: start, to: endCur, insert: text.slice(start, endNew) }, annotations: externalChange.of(true) });
 	}
 
 	private renderPreview(): Promise<void> {

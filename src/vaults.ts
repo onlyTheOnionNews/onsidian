@@ -98,16 +98,48 @@ export async function openAdapter(v: VaultEntry): Promise<BaseAdapter> {
 }
 
 /**
- * One tab per vault (PLAN §2). ponytail: a second tab is refused rather than becoming a follower;
- * leader/follower forwarding over BroadcastChannel comes with Relay (phase 5). Without Web Locks we can't tell, so we allow it.
+ * One tab per vault (PLAN §2), so two tabs never overwrite each other. A second tab can take the vault over: it asks
+ * the owner over a BroadcastChannel, the owner flushes its saves and releases the Web Lock, then the new tab gets it.
+ * Without Web Locks we can't tell tabs apart, so the vault opens anyway.
  */
-export function lockVault(id: string): Promise<boolean> {
-	if (!navigator.locks) return Promise.resolve(true);
+export interface VaultLock {
+	release(): void;
+}
+
+export class VaultBusyError extends Error {
+	constructor(name: string) {
+		super(`"${name}" is open in another tab.`);
+	}
+}
+
+function requestLock(id: string, ifAvailable: boolean): Promise<VaultLock | null> {
+	if (!navigator.locks) return Promise.resolve({ release() {} });
 	return new Promise((resolve) => {
-		void navigator.locks.request(`vault:${id}`, { ifAvailable: true }, (lock) => {
-			resolve(!!lock);
-			// Hold the lock for the life of the page.
-			return lock ? new Promise(() => {}) : undefined;
+		void navigator.locks.request(`vault:${id}`, { ifAvailable }, (lock) => {
+			if (!lock) {
+				resolve(null);
+				return undefined;
+			}
+			// Held until release(): the lock lives as long as this promise is pending.
+			return new Promise<void>((done) => resolve({ release: done }));
 		});
 	});
+}
+
+export const lockVault = (id: string) => requestLock(id, true);
+
+const channel = (id: string) => (typeof BroadcastChannel === 'function' ? new BroadcastChannel(`obsidian-online:vault:${id}`) : null);
+
+/** Ask the tab holding the vault to hand it over, then wait for the lock. */
+export async function takeOverVault(id: string): Promise<VaultLock> {
+	const ch = channel(id);
+	ch?.postMessage({ type: 'takeover' });
+	ch?.close();
+	return (await requestLock(id, false))!;
+}
+
+/** In the owning tab: call `onTakeover` when another tab asks for the vault. */
+export function onTakeoverRequest(id: string, onTakeover: () => void): void {
+	const ch = channel(id);
+	if (ch) ch.onmessage = (e) => e.data?.type === 'takeover' && onTakeover();
 }

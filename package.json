@@ -35,6 +35,7 @@
     "mathjax": "^3.2.2",
     "mermaid": "^12.2.0",
     "moment": "^2.31.0",
+    "node-diff3": "^3.2.1",
     "pdfjs-dist": "^6.4.299",
     "prismjs": "^1.30.0"
   },

@@ -115,6 +115,16 @@ export class App {
 		void this.metadataCache.initialize();
 	}
 
+	/** Save every editor with pending changes now. */
+	async flushSaves(): Promise<void> {
+		const saves: Promise<unknown>[] = [];
+		this.workspace.iterateAllLeaves((leaf) => {
+			const r = (leaf.view as any)?.requestSave?.run?.();
+			if (r) saves.push(r);
+		});
+		await Promise.all(saves);
+	}
+
 	/** Flush pending autosaves when the tab is hidden; warn before closing while a save is still pending. */
 	private guardUnsavedChanges(): void {
 		const flush = () => {
