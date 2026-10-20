@@ -1,0 +1,17 @@
+{
+	"name": "obsidian-online",
+	"short_name": "obsidian-online",
+	"description": "Markdown notes in your browser, compatible with Obsidian vaults and plugins.",
+	"start_url": "./",
+	"scope": "./",
+	"display": "standalone",
+	"background_color": "#202020",
+	"theme_color": "#202020",
+	"icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }],
+	"share_target": {
+		"action": "share",
+		"method": "POST",
+		"enctype": "multipart/form-data",
+		"params": { "title": "title", "text": "text", "url": "url" }
+	}
+}

@@ -171,6 +171,9 @@ async function showPicker(caps: Caps, error?: string, busy?: VaultEntry): Promis
 
 async function boot(): Promise<void> {
 	applyAppearance(null); // system scheme until a vault's appearance.json is loaded
+	// Offline support (public/sw.js). Production only: in dev, Vite serves unbundled modules the SW can't precache.
+	// No SW (Firefox private windows, policy): the app needs the network to load; editing works once loaded.
+	if (import.meta.env.PROD && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 	const caps = await probeCaps();
 	// Reopen the last browser vault directly. Folder vaults need a click to re-grant permission, so they go via the picker.
 	const last = storageGet(LAST_VAULT_KEY);
