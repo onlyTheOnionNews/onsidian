@@ -2,6 +2,7 @@
 import type { BaseAdapter } from './adapters';
 import { applyAppearance } from './appearance';
 import { registerCoreCommands } from './commands';
+import { CustomCss } from './community';
 import { InternalPlugins } from './coreplugins';
 import { FileManager } from './filemanager';
 import { Commands, Keymap, Scope } from './keymap';
@@ -30,6 +31,7 @@ export class App {
 	setting: SettingsModal;
 	internalPlugins: InternalPlugins;
 	plugins: PluginManager;
+	customCss: CustomCss;
 	/** Obsidian URI actions registered by plugins (registerObsidianProtocolHandler). */
 	protocolHandlers = new Map<string, (params: Record<string, string>) => any>();
 	/** Root element: .app-container > .horizontal-main-container > .workspace, plus the status bar. */
@@ -45,6 +47,7 @@ export class App {
 		this.setting = new SettingsModal(this);
 		this.internalPlugins = new InternalPlugins(this);
 		this.plugins = new PluginManager(this, appId, pluginRequire);
+		this.customCss = new CustomCss(this);
 		for (const P of [GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin]) {
 			this.internalPlugins.add(new P(this));
 		}
@@ -68,6 +71,7 @@ export class App {
 		await this.vault.loadConfig();
 		this.commands.customKeys = (await this.vault.readConfigJson('hotkeys')) ?? {};
 		applyAppearance(this.vault);
+		await this.customCss.load();
 		this.vault.on('config-changed', () => applyAppearance(this.vault));
 		await this.vault.load();
 		// The explorer claims the first sidebar tab before plugins add theirs (onLayoutReady runs in order).

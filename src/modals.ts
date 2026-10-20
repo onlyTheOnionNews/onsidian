@@ -6,6 +6,7 @@ import { Keymap, eventKey, hotkeyLabel, isMac, type Command, type Hotkey, type M
 import { FuzzySuggestModal, Modal, Setting, SuggestModal, prepareFuzzySearch, renderResults, type FuzzyMatch, type SearchResult } from './ui';
 import { TFile } from './vault';
 import { Notice } from './workspace';
+import { PluginBrowser, renderThemeSettings } from './community';
 import { activeBridge, bridgeUserscript, getCorsProxy, hoppscotchVersion, requestUrl, setCorsProxy } from './network';
 
 // ---------------- Command palette ----------------
@@ -290,7 +291,7 @@ class AppearanceTab extends SettingTab {
 		configText(this.app, el, 'interfaceFontFamily', 'Interface font', 'CSS font-family list.', 'e.g. Inter, sans-serif');
 		configText(this.app, el, 'textFontFamily', 'Text font', 'Used in editing and reading views.');
 		configText(this.app, el, 'monospaceFontFamily', 'Monospace font', 'Used for code.');
-		el.createDiv({ cls: 'setting-item-description', text: 'Community themes and CSS snippets arrive with the plugin & theme host (phase 3).' });
+		renderThemeSettings(this.app, el, () => this.display());
 	}
 }
 
@@ -414,6 +415,8 @@ class CommunityPluginsTab extends SettingTab {
 					this.display();
 				}));
 		}
+		new Setting(el).setName('Community plugins').setDesc('Browse plugins from the Obsidian community directory.')
+			.addButton((b) => b.setButtonText('Browse').setCta().onClick(() => new PluginBrowser(this.app).setCloseCallback(() => this.display()).open()));
 		new Setting(el).setName('Install plugin from files').setDesc('A release .zip, or manifest.json + main.js (+ styles.css) downloaded from the plugin’s GitHub releases.')
 			.addButton((b) => b.setButtonText('Choose files…').onClick(() => {
 				const input = createEl('input', { type: 'file', attr: { multiple: '', accept: '.zip,.json,.js,.css' } });
