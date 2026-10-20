@@ -326,3 +326,7 @@ body {
 }
 .hover-popover .markdown-embed { margin: 0; padding: 0; border: none; }
 .hover-popover .markdown-embed-content > .markdown-embed { border: none; padding: 0; }
+
+.view-header-nav-buttons { display: flex; gap: var(--size-2-1); }
+.view-header-nav-buttons button { background: none; border: none; padding: var(--size-2-2); }
+.view-header-nav-buttons button:disabled { opacity: 0.35; cursor: default; background: none; }

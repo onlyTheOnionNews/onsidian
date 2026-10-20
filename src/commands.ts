@@ -3,6 +3,7 @@
 import { EditorSelection } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { App } from './app';
+import { exportVaultZip, importZip } from './backup';
 import { CommandPalette, QuickSwitcher } from './modals';
 import { promptText } from './ui';
 import type { MarkdownView } from './views/markdown';
@@ -70,6 +71,23 @@ export function registerCoreCommands(app: App): void {
 	c.addCommand({ id: 'command-palette:open', name: 'Command palette: Open command palette', icon: 'terminal', hotkeys: [{ modifiers: ['Mod'], key: 'P' }], callback: () => new CommandPalette(app).open() });
 	c.addCommand({ id: 'switcher:open', name: 'Quick switcher: Open quick switcher', icon: 'search', hotkeys: [{ modifiers: ['Mod'], key: 'O' }], callback: () => new QuickSwitcher(app).open() });
 	c.addCommand({ id: 'app:open-settings', name: 'Open settings', icon: 'settings', hotkeys: [{ modifiers: ['Mod'], key: ',' }], callback: () => app.setting.open() });
+	for (const [id, name, key, dir] of [['app:go-back', 'Navigate back', 'ArrowLeft', 'back'], ['app:go-forward', 'Navigate forward', 'ArrowRight', 'forward']] as const) {
+		c.addCommand({ id, name, hotkeys: [{ modifiers: ['Mod', 'Alt'], key }], checkCallback: (checking) => {
+			const leaf = app.workspace.getMostRecentLeaf();
+			const h = leaf?.history;
+			if (!h || !(dir === 'back' ? h.backHistory : h.forwardHistory).length) return false;
+			if (!checking) void (dir === 'back' ? h.back() : h.forward());
+			return true;
+		} });
+	}
+	// Mouse back/forward buttons navigate tabs instead of leaving the app.
+	window.addEventListener('mouseup', (e) => {
+		if (e.button !== 3 && e.button !== 4) return;
+		e.preventDefault();
+		c.executeCommandById(e.button === 3 ? 'app:go-back' : 'app:go-forward');
+	});
+	c.addCommand({ id: 'app:export-vault-zip', name: 'Export vault as .zip', icon: 'download', callback: () => void exportVaultZip(app) });
+	c.addCommand({ id: 'app:import-zip', name: 'Import .zip into vault', icon: 'upload', callback: () => void importZip(app) });
 	c.addCommand({ id: 'app:toggle-left-sidebar', name: 'Toggle left sidebar', callback: () => app.workspace.leftSplit.toggle() });
 	c.addCommand({ id: 'app:toggle-right-sidebar', name: 'Toggle right sidebar', callback: () => app.workspace.rightSplit.toggle() });
 

@@ -64,11 +64,33 @@ export class App {
 		applyAppearance(this.vault);
 		this.vault.on('config-changed', () => applyAppearance(this.vault));
 		await this.vault.load();
-		this.workspace.initLayout();
-		await this.workspace.ensureSideLeaf('file-explorer', 'left', { reveal: true });
+		// The explorer claims the first sidebar tab before plugins add theirs (onLayoutReady runs in order).
+		this.workspace.onLayoutReady(() => void this.workspace.ensureSideLeaf('file-explorer', 'left'));
+		// Plugins before the layout, so their views exist when saved leaves are restored.
 		await this.internalPlugins.load();
+		await this.workspace.initLayout();
+		this.guardUnsavedChanges();
 		// Index in the background: the UI is usable while a large vault is still being parsed.
 		void this.metadataCache.initialize();
+	}
+
+	/** Flush pending autosaves when the tab is hidden; warn before closing while a save is still pending. */
+	private guardUnsavedChanges(): void {
+		const flush = () => {
+			let pending = false;
+			this.workspace.iterateAllLeaves((leaf) => {
+				const v = leaf.view as any;
+				if (v?.requestSave?.run) {
+					const r = v.requestSave.run();
+					if (r !== undefined) pending = true;
+				}
+			});
+			return pending;
+		};
+		document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flush());
+		window.addEventListener('beforeunload', (e) => {
+			if (flush()) e.preventDefault(); // the browser asks "Leave site?" while the write finishes
+		});
 	}
 
 	addStatusBarItem(): HTMLElement {

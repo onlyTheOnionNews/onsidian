@@ -84,7 +84,12 @@ export abstract class ItemView extends View {
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
 		this.headerEl = this.containerEl.createDiv('view-header');
-		this.headerEl.createDiv('view-header-left');
+		const nav = this.headerEl.createDiv('view-header-left').createDiv('view-header-nav-buttons');
+		for (const [icon, label, dir] of [['arrow-left', 'Navigate back', 'back'], ['arrow-right', 'Navigate forward', 'forward']] as const) {
+			const b = nav.createEl('button', { cls: 'clickable-icon', attr: { 'aria-label': label, 'data-dir': dir } });
+			setIcon(b, icon);
+			b.addEventListener('click', () => void (dir === 'back' ? this.leaf.history.back() : this.leaf.history.forward()));
+		}
 		this.titleEl = this.headerEl.createDiv('view-header-title-container').createDiv('view-header-title');
 		this.actionsEl = this.headerEl.createDiv('view-actions');
 		this.contentEl = this.containerEl.createDiv('view-content');
@@ -142,7 +147,8 @@ export abstract class FileView extends ItemView {
 /** File view over text data with autosave (obsidian.d.ts TextFileView). Relay patches requestSave/save/setViewData here. */
 export abstract class TextFileView extends FileView {
 	data = '';
-	requestSave = debounce(() => void this.save(), 2000, true);
+	// Returns the save promise, so requestSave.run() tells callers a save was pending (unsaved-changes guard).
+	requestSave = debounce(() => this.save(), 2000, true);
 
 	abstract getViewData(): string;
 	abstract setViewData(data: string, clear: boolean): void;
@@ -182,7 +188,11 @@ class EmptyView extends ItemView {
 
 // ---------------- Layout tree ----------------
 
+/** 16 hex chars, like Obsidian's layout ids. */
+const newId = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+
 export abstract class WorkspaceItem extends Events {
+	id = newId();
 	parent: WorkspaceParent | null = null;
 	containerEl!: HTMLElement;
 	constructor(public workspace: Workspace) { super(); }
@@ -260,7 +270,7 @@ export class WorkspaceRoot extends WorkspaceSplit {
 
 export class WorkspaceSidedock extends WorkspaceSplit {
 	collapsed = false;
-	private width: number;
+	width: number;
 
 	constructor(workspace: Workspace, public side: 'left' | 'right') {
 		super(workspace, 'horizontal');
@@ -287,8 +297,16 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 				this.containerEl.style.width = `${this.width}px`;
 			};
 			handle.addEventListener('pointermove', move);
-			handle.addEventListener('pointerup', () => handle.removeEventListener('pointermove', move), { once: true });
+			handle.addEventListener('pointerup', () => {
+				handle.removeEventListener('pointermove', move);
+				this.workspace.requestSaveLayout();
+			}, { once: true });
 		});
+	}
+
+	setWidth(px: number): void {
+		this.width = px;
+		this.containerEl.style.width = `${px}px`;
 	}
 
 	toggle(): void { this.collapsed ? this.expand() : this.collapse(); }
@@ -299,6 +317,7 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 		this.collapsed = c;
 		this.containerEl.toggleClass('is-sidedock-collapsed', c);
 		this.workspace.trigger('resize');
+		this.workspace.requestSaveLayout();
 	}
 
 	// Sidedocks stay even when empty.
@@ -349,11 +368,47 @@ export class WorkspaceTabs extends WorkspaceParent {
 	}
 }
 
-let leafIds = 0;
+interface HistoryEntry {
+	state: ViewState;
+	eState: unknown;
+}
+
+/** Per-leaf back/forward navigation (leaf.history in Obsidian). */
+export class LeafHistory {
+	backHistory: HistoryEntry[] = [];
+	forwardHistory: HistoryEntry[] = [];
+	constructor(private leaf: WorkspaceLeaf) {}
+
+	/** @internal record the current state before navigating away. */
+	push(): void {
+		const v = this.leaf.view as FileView;
+		if (!v?.navigation || !v.file) return;
+		this.backHistory.push({ state: this.leaf.getViewState(), eState: v.getEphemeralState() });
+		if (this.backHistory.length > 50) this.backHistory.shift();
+		this.forwardHistory = [];
+	}
+
+	async back(): Promise<void> {
+		await this.go(this.backHistory, this.forwardHistory);
+	}
+
+	async forward(): Promise<void> {
+		await this.go(this.forwardHistory, this.backHistory);
+	}
+
+	private async go(from: HistoryEntry[], to: HistoryEntry[]): Promise<void> {
+		const entry = from.pop();
+		if (!entry) return;
+		to.push({ state: this.leaf.getViewState(), eState: this.leaf.view.getEphemeralState() });
+		await this.leaf.setViewState(entry.state, entry.eState, { history: true });
+	}
+}
 
 export class WorkspaceLeaf extends WorkspaceItem {
-	id = `leaf-${++leafIds}`;
 	app: App;
+	history = new LeafHistory(this);
+	/** State for a view type that isn't registered yet (e.g. a plugin still loading); applied when it registers. */
+	pendingState: ViewState | null = null;
 	view!: View;
 	pinned = false;
 	tabHeaderEl: HTMLElement;
@@ -404,10 +459,19 @@ export class WorkspaceLeaf extends WorkspaceItem {
 		return view;
 	}
 
-	async setViewState(vs: ViewState, eState?: any): Promise<void> {
-		if (!this.view || this.view.getViewType() !== vs.type) {
-			const create = this.app.viewRegistry.viewByType[vs.type] ?? this.app.viewRegistry.viewByType['empty'];
+	async setViewState(vs: ViewState, eState?: any, opts: { history?: boolean } = {}): Promise<void> {
+		const registered = !!this.app.viewRegistry.viewByType[vs.type];
+		this.pendingState = registered ? null : vs;
+		// Navigating to another file/view records history (unless we're replaying history).
+		const cur = this.getViewState();
+		if (!opts.history && (cur.type !== vs.type || (vs.state as any)?.file !== (cur.state as any)?.file)) this.history.push();
+		if (!this.view || this.view.getViewType() !== (registered ? vs.type : 'empty')) {
+			const create = this.app.viewRegistry.viewByType[registered ? vs.type : 'empty'];
 			await this.open(create(this));
+		}
+		if (!registered) {
+			this.updateHeader();
+			return;
 		}
 		await this.view.setState(vs.state ?? {}, { history: false });
 		if (eState) this.view.setEphemeralState(eState);
@@ -418,6 +482,7 @@ export class WorkspaceLeaf extends WorkspaceItem {
 	}
 
 	getViewState(): ViewState {
+		if (this.pendingState) return this.pendingState;
 		return { type: this.view?.getViewType() ?? 'empty', state: this.view?.getState() ?? {}, pinned: this.pinned };
 	}
 
@@ -444,6 +509,9 @@ export class WorkspaceLeaf extends WorkspaceItem {
 
 	/** @internal */
 	updateHeader(): void {
+		for (const b of this.view?.containerEl.querySelectorAll<HTMLButtonElement>('.view-header-nav-buttons button') ?? []) {
+			b.disabled = !(b.dataset.dir === 'back' ? this.history.backHistory : this.history.forwardHistory).length;
+		}
 		setIcon(this.tabIconEl, this.getIcon());
 		this.tabTitleEl.setText(this.getDisplayText());
 		this.tabHeaderEl.setAttr('aria-label', this.getDisplayText());
@@ -500,16 +568,96 @@ export class Workspace extends Events {
 		this.rootSplit = new WorkspaceRoot(this);
 		this.containerEl.append(this.leftRibbon.containerEl, this.leftSplit.containerEl, this.rootSplit.containerEl, this.rightSplit.containerEl);
 		app.viewRegistry.registerView('empty', (leaf) => new EmptyView(leaf));
+		app.viewRegistry.on('view-registered', (type: string) => {
+			this.iterateAllLeaves((leaf) => {
+				if (leaf.pendingState?.type === type) void leaf.setViewState(leaf.pendingState, undefined, { history: true });
+			});
+		});
 		window.addEventListener('resize', () => this.trigger('resize'));
 	}
 
 	/** Build the default layout. Called once views are registered. */
-	initLayout(): void {
+	/**
+	 * Restore the saved layout (or build the default) and fire onLayoutReady callbacks. The layout lives in
+	 * .obsidian/workspace-web.json so it doesn't fight desktop Obsidian over workspace.json on a shared folder;
+	 * the first run imports the desktop layout if there is one.
+	 */
+	async initLayout(): Promise<void> {
+		const { vault } = this.app;
+		const layout = (await vault.readConfigJson('workspace-web')) ?? (await vault.readConfigJson('workspace'));
+		try {
+			if (layout) await this.loadLayout(layout);
+		} catch (e) {
+			console.warn('Ignoring unreadable workspace layout', e);
+		}
 		this.rootSplit.ensureLeaf();
-		for (const side of [this.leftSplit, this.rightSplit]) side.insertChild(0, new WorkspaceTabs(this, true));
+		for (const side of [this.leftSplit, this.rightSplit]) if (!side.children.length) side.insertChild(0, new WorkspaceTabs(this, true));
 		this.layoutReady = true;
 		for (const cb of this.layoutReadyCbs.splice(0)) cb();
+		this.on('layout-change', () => this.requestSaveLayout());
+		this.on('active-leaf-change', () => this.requestSaveLayout());
 		this.trigger('layout-change');
+	}
+
+	getLayout(): Record<string, unknown> {
+		const ser = (item: WorkspaceItem): any => {
+			if (item instanceof WorkspaceLeaf) return { id: item.id, type: 'leaf', state: item.getViewState() };
+			if (item instanceof WorkspaceTabs) return { id: item.id, type: 'tabs', children: item.children.map(ser), currentTab: item.currentTab };
+			const split = item as WorkspaceSplit;
+			const out: any = { id: split.id, type: 'split', children: split.children.map(ser), direction: split.direction };
+			if (split instanceof WorkspaceSidedock) Object.assign(out, { width: split.width, collapsed: split.collapsed });
+			return out;
+		};
+		return {
+			main: ser(this.rootSplit),
+			left: ser(this.leftSplit),
+			right: ser(this.rightSplit),
+			active: this.activeLeaf?.id,
+			lastOpenFiles: this.lastOpenFiles,
+		};
+	}
+
+	/** Debounced write of the current layout. */
+	requestSaveLayout = debounce(() => {
+		if (this.layoutReady) void this.app.vault.writeConfigJson('workspace-web', this.getLayout());
+	}, 1000);
+
+	private async loadLayout(layout: any): Promise<void> {
+		const jobs: Promise<void>[] = [];
+		let active: WorkspaceLeaf | null = null;
+		const build = (parent: WorkspaceParent, data: any, iconOnly: boolean): void => {
+			if (data?.type === 'tabs') {
+				const tabs = new WorkspaceTabs(this, iconOnly);
+				parent.insertChild(parent.children.length, tabs);
+				for (const child of data.children ?? []) build(tabs, child, iconOnly);
+				tabs.selectTabIndex(Math.min(data.currentTab ?? 0, tabs.children.length - 1));
+				if (!tabs.children.length) parent.removeChild(tabs);
+			} else if (data?.type === 'leaf') {
+				const leaf = new WorkspaceLeaf(this);
+				if (typeof data.id === 'string') leaf.id = data.id;
+				parent.insertChild(parent.children.length, leaf);
+				if (data.id === layout.active) active = leaf;
+				jobs.push(leaf.setViewState(data.state ?? { type: 'empty' }, undefined, { history: true }));
+			} else if (data?.type === 'split') {
+				const split = new WorkspaceSplit(this, data.direction === 'horizontal' ? 'horizontal' : 'vertical');
+				parent.insertChild(parent.children.length, split);
+				for (const child of data.children ?? []) build(split, child, iconOnly);
+			}
+		};
+		for (const child of layout.main?.children ?? []) build(this.rootSplit, child, false);
+		for (const [side, data] of [[this.leftSplit, layout.left], [this.rightSplit, layout.right]] as const) {
+			for (const child of data?.children ?? []) build(side, child, true);
+			if (typeof data?.width === 'number') side.setWidth(data.width);
+			if (data?.collapsed) side.collapse();
+		}
+		if (Array.isArray(layout.lastOpenFiles)) this.lastOpenFiles = layout.lastOpenFiles.filter((p: unknown) => typeof p === 'string');
+		await Promise.all(jobs);
+		const restored = active as WorkspaceLeaf | null;
+		if (restored) this.setActiveLeaf(restored);
+		else {
+			const first = firstLeaf(this.rootSplit);
+			if (first) this.setActiveLeaf(first);
+		}
 	}
 
 	onLayoutReady(cb: () => any): void {

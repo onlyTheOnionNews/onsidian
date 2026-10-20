@@ -379,6 +379,9 @@ class AboutTab extends SettingTab {
 		el.empty();
 		new Setting(el).setName('obsidian-online').setDesc('A browser client for Markdown vaults. Not affiliated with Obsidian.').setHeading();
 		new Setting(el).setName('Vault storage').setDesc(this.app.vault.adapter.constructor.name.replace('Adapter', '') + ` · ${this.app.vault.getName()}`);
+		new Setting(el).setName('Backup').setDesc('Browser storage can be cleared by the browser. Export regularly.')
+			.addButton((b) => b.setButtonText('Export .zip').setCta().onClick(() => this.app.commands.executeCommandById('app:export-vault-zip')))
+			.addButton((b) => b.setButtonText('Import .zip').onClick(() => this.app.commands.executeCommandById('app:import-zip')));
 		new Setting(el).setName('Capabilities').setHeading();
 		for (const [k, v] of Object.entries(caps)) new Setting(el).setName(k).setDesc(v ? 'available' : 'unavailable — features fall back where possible');
 	}
