@@ -7,7 +7,8 @@ let current = '';
 
 self.addEventListener('install', (e) => e.waitUntil((async () => {
 	const text = await (await fetch('asset-manifest.json', { cache: 'no-cache' })).text();
-	const urls = new Set(['./', 'manifest.webmanifest', 'icon.svg']);
+	// Bundled plugins (scripts/vendor-relay.mjs) live outside Vite's manifest.
+	const urls = new Set(['./', 'manifest.webmanifest', 'icon.svg', ...['main.js', 'manifest.json', 'styles.css'].map((f) => `bundled/system3-relay/${f}`)]);
 	for (const c of Object.values(JSON.parse(text))) for (const f of [c.file, ...(c.css ?? []), ...(c.assets ?? [])]) urls.add(f);
 	const cache = await caches.open(await cacheName(text));
 	await cache.addAll([...urls]);

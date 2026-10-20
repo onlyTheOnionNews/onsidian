@@ -4,12 +4,15 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/vendor-relay.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/vendor-relay.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "css-coverage": "node scripts/css-vars-coverage.mjs",
     "api-coverage": "node scripts/api-coverage.mjs",
-    "compat:fetch": "node scripts/fetch-compat-plugins.mjs"
+    "compat:fetch": "node scripts/fetch-compat-plugins.mjs",
+    "vendor:relay": "node scripts/vendor-relay.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",

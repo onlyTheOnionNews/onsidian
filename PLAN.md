@@ -417,7 +417,17 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 
 ## 10. Phased roadmap
 
-**Status (2026-10-20):** phases 1–4 are done. Phase 4: note core plugins, file recovery, graph view, Canvas, Bases (4 core layouts; Map comes from the official Maps plugin through `registerBasesView`), pdf.js viewer, web viewer, importer, static-site export.
+**Status (2026-10-20):** phases 1–4 are done; phase 5 is done except the parts that need a signed-in Relay account.
+Phase 5:
+- **Merge:** a note changed elsewhere while it has unsaved edits is 3-way merged (diff3). Conflicting hunks keep the local text, and the other version is saved as a "conflicted copy" note.
+- **Tabs:** one tab owns a vault (Web Locks). A second tab can take it over; the owner saves and hands it off over a BroadcastChannel.
+- **Offline / install:** the Service Worker precaches the whole build (including lazy pdf.js/MathJax/Mermaid and bundled Relay). Verified with the server stopped. Installable PWA with a share target. Browser vaults request persistent storage.
+- **Web clipper:** bookmarklet (postMessage to the app's origin only) and share target; validated, sanitized, confirmed before saving.
+- **Relay:** vendored at 0.8.12 by `scripts/vendor-relay.mjs`, pinned by SHA-256 in `relay.lock.json`. It is a built-in plugin: on by default, exempt from Restricted mode, can be turned off but not uninstalled, and keeps its settings in the vault's `.obsidian/plugins/system3-relay/`. It loads with no errors and no missing internals, and shows its sign-in page.
+- **Not done (needs an account, open question 2):** the signed-in two-context collab test, the WebSocket origin check, and the storage-URL CORS checks from §7.1. Signing in is the owner's step. Relay's own update check against the GitHub releases API fails CORS (it sends a custom header); the bundled copy updates through the lock file instead.
+- **Test environment note:** the in-app browser used for testing lost OPFS file contents (folders kept) twice when the pane restarted. No app code deletes files that way; real browsers should be checked with the cleared-storage guard and persistent storage in place.
+
+Phase 4: Phase 4: note core plugins, file recovery, graph view, Canvas, Bases (4 core layouts; Map comes from the official Maps plugin through `registerBasesView`), pdf.js viewer, web viewer, importer, static-site export.
 - **Plugins:** 36 of the top 50 mobile-compatible plugins load cleanly (`docs/plugin-compat.md`). API coverage is 128/159 runtime exports (`npm run api-coverage`).
 - **Installs:** only 1 of the top 40 plugins is installable via jsDelivr, so one-click installs need a network bridge (§6.3) or manual install. See open question 6.
 
@@ -425,9 +435,7 @@ Known gaps carried forward, each marked `ponytail:` in code:
 - Search is a main-thread linear scan; the metadata index isn't persisted between sessions.
 - `.obsidian/types.json` (explicit property types) isn't read or written.
 - Root splits can't be resized; there are no stacked tabs, pop-out windows, or drag-and-drop in the explorer.
-- PDFs use the browser's built-in viewer (pdf.js in phase 4).
 - Reading view re-renders the whole note on each change.
-- Conflicting external edits: unsaved local edits win (merging comes in phase 5).
 - Graph view is Canvas 2D with physics on the main thread (worker/WebGL for very large vaults).
 - Canvas text cards edit in a plain textarea, not a full editor.
 - PDF view has no outline sidebar or annotation tools.
@@ -446,6 +454,7 @@ Known gaps carried forward, each marked `ponytail:` in code:
 5. **Relay + offline:** private-internal fidelity work (MarkdownView/TextFileView/MetadataCache/Canvas), vendored Relay
    build step, two-context collab test suite, the remaining CORS checks from §7.1, PWA/offline, web clipper.
    Canvas internals arrive in phase 4, so Relay comes after it.
+   Also: a new app version activates only after every tab of the old one closes (no "update available" prompt yet).
 6. **Perf pass:** benchmark 1k/10k/50k-note vaults; add the optional wasm accelerators only where JS misses targets
    (e.g. cold index of 10k notes < 5s, search keystroke < 50ms, graph 60fps at 5k nodes).
 

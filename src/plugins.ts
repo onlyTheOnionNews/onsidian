@@ -19,6 +19,8 @@ export interface PluginManifest {
 	description: string;
 	authorUrl?: string;
 	isDesktopOnly?: boolean;
+	/** Ships with the app (URL of its files); settings still live in the vault's plugin folder. */
+	bundled?: string;
 }
 
 export abstract class Plugin extends Component {
@@ -222,6 +224,18 @@ function diagnosticApp(app: App): App {
 // ---------------- Manager (`app.plugins`) ----------------
 
 const RESTRICTED_KEY = (vaultId: string) => `obsidian-online:community-plugins:${vaultId}`;
+const SEEDED_KEY = (vaultId: string) => `obsidian-online:bundled-seeded:${vaultId}`;
+const local = {
+	get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
+	set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
+};
+
+/**
+ * Plugins that ship with the app (PLAN §7.1): Relay is the built-in collaboration feature. Vendored at build time
+ * (scripts/vendor-relay.mjs), exempt from Restricted mode, on by default, and can't be uninstalled, only turned off.
+ * A vault that has its own copy installed uses that copy instead.
+ */
+export const BUNDLED_PLUGINS = ['system3-relay'];
 
 export class PluginManager {
 	manifests: Record<string, PluginManifest> = {};
@@ -261,6 +275,16 @@ export class PluginManager {
 				// not a plugin folder
 			}
 		}
+		for (const id of BUNDLED_PLUGINS) {
+			if (this.manifests[id]) continue;
+			const url = new URL(`bundled/${id}/`, document.baseURI).href;
+			try {
+				const m = (await (await fetch(`${url}manifest.json`)).json()) as PluginManifest;
+				this.manifests[id] = { ...m, dir: `${this.dir}/${id}`, bundled: url };
+			} catch {
+				// not vendored in this build
+			}
+		}
 	}
 
 	/** Startup: read manifests + community-plugins.json, then load enabled plugins unless restricted. */
@@ -268,8 +292,14 @@ export class PluginManager {
 		await this.loadManifests();
 		const saved = await this.app.vault.readConfigJson('community-plugins');
 		this.enabledPlugins = new Set(Array.isArray(saved) ? saved.filter((x) => typeof x === 'string') : []);
-		if (!this.isEnabled()) return;
-		for (const id of this.enabledPlugins) await this.loadPlugin(id);
+		// Bundled plugins start enabled, once per vault; after that the user's toggle (community-plugins.json) decides.
+		// ponytail: the "seeded" marker is per device, so another device enables it once more; sync it if that bites.
+		if (BUNDLED_PLUGINS.some((id) => this.manifests[id]?.bundled) && !local.get(SEEDED_KEY(this.vaultId))) {
+			for (const id of BUNDLED_PLUGINS) if (this.manifests[id]) this.enabledPlugins.add(id);
+			await this.saveConfig();
+			local.set(SEEDED_KEY(this.vaultId), '1');
+		}
+		for (const id of this.enabledPlugins) if (this.isEnabled() || this.manifests[id]?.bundled) await this.loadPlugin(id);
 	}
 
 	getPlugin(id: string): Plugin | null {
@@ -286,7 +316,7 @@ export class PluginManager {
 			return null;
 		}
 		try {
-			const code = await this.app.vault.adapter.read(`${m.dir}/main.js`);
+			const code = m.bundled ? await (await fetch(`${m.bundled}main.js`)).text() : await this.app.vault.adapter.read(`${m.dir}/main.js`);
 			const exported = await evaluateCommonJs(code, id, this.requireFn);
 			const PluginClass = exported?.default ?? exported;
 			if (typeof PluginClass !== 'function') throw new Error('main.js does not export a Plugin class.');
@@ -338,10 +368,12 @@ export class PluginManager {
 	}
 
 	async uninstallPlugin(id: string): Promise<void> {
-		await this.disablePluginAndSave(id);
 		const m = this.manifests[id];
+		if (m?.bundled) return; // built in: it can only be turned off, and its folder holds the vault's settings
+		await this.disablePluginAndSave(id);
 		if (m?.dir) await this.app.vault.adapter.rmdir(m.dir, true);
 		delete this.manifests[id];
+		await this.loadManifests(); // a removed local copy of a bundled plugin falls back to the built-in one
 	}
 
 	/** Write a plugin's files into .obsidian/plugins/<id>/ (from a zip, folder, or download). */
@@ -364,9 +396,12 @@ export class PluginManager {
 
 	private async loadStyles(m: PluginManifest): Promise<void> {
 		const path = `${m.dir}/styles.css`;
-		if (!(await this.app.vault.adapter.exists(path))) return;
+		const css = m.bundled
+			? await fetch(`${m.bundled}styles.css`).then((r) => (r.ok ? r.text() : null))
+			: (await this.app.vault.adapter.exists(path)) ? await this.app.vault.adapter.read(path) : null;
+		if (css === null) return;
 		const style = document.head.createEl('style', { attr: { 'data-plugin': m.id } });
-		style.textContent = await this.app.vault.adapter.read(path);
+		style.textContent = css;
 		this.styles[m.id] = style;
 	}
 

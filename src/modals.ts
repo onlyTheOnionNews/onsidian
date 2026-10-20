@@ -442,7 +442,7 @@ class CommunityPluginsTab extends SettingTab {
 		} else {
 			new Setting(el).setName('Restricted mode').setDesc('Off on this device. Turning it on unloads all community plugins.')
 				.addButton((b) => b.setButtonText('Turn on restricted mode').onClick(async () => {
-					for (const id of Object.keys(pm.plugins)) await pm.unloadPlugin(id);
+					for (const id of Object.keys(pm.plugins)) if (!pm.manifests[id]?.bundled) await pm.unloadPlugin(id);
 					pm.setCommunityPluginsEnabled(false);
 					this.display();
 				}));
@@ -473,17 +473,17 @@ class CommunityPluginsTab extends SettingTab {
 		if (!manifests.length) el.createDiv({ cls: 'setting-item-description', text: 'No community plugins installed.' });
 		for (const m of manifests) {
 			const loaded = !!pm.plugins[m.id];
-			const s = new Setting(el).setName(`${m.name} ${m.version}`).setDesc(`By ${m.author}. ${m.description}`);
+			const s = new Setting(el).setName(`${m.name} ${m.version}${m.bundled ? ' (built in)' : ''}`).setDesc(`By ${m.author}. ${m.description}`);
 			const err = pm.errors[m.id] ?? (m.isDesktopOnly ? 'Desktop-only: needs Node.js/Electron.' : '');
 			if (err) s.descEl.createDiv({ cls: 'mod-warning setting-plugin-error', text: err });
 			if (loaded && this.app.setting.pluginTabs.some((t) => t.id === m.id)) {
 				s.addExtraButton((b) => b.setIcon('settings').setTooltip('Options').onClick(() => this.app.setting.openTabById(m.id)));
 			}
-			s.addExtraButton((b) => b.setIcon('trash-2').setTooltip('Uninstall').onClick(async () => {
+			if (!m.bundled) s.addExtraButton((b) => b.setIcon('trash-2').setTooltip('Uninstall').onClick(async () => {
 				await pm.uninstallPlugin(m.id);
 				this.display();
 			}));
-			s.addToggle((t) => t.setValue(pm.enabledPlugins.has(m.id)).setDisabled(!pm.isEnabled() || !!m.isDesktopOnly).onChange(async (v) => {
+			s.addToggle((t) => t.setValue(pm.enabledPlugins.has(m.id)).setDisabled((!pm.isEnabled() && !m.bundled) || !!m.isDesktopOnly).onChange(async (v) => {
 				if (v) await pm.enablePluginAndSave(m.id);
 				else await pm.disablePluginAndSave(m.id);
 				this.app.setting.openTab(this);
