@@ -210,15 +210,28 @@ export class CanvasView extends TextFileView {
 		return JSON.stringify(this.canvas.getData(), null, '\t');
 	}
 
+	/** Set when the file isn't valid JSON: we show it empty and never write it back (that would destroy it). */
+	private unreadable = false;
+
 	setViewData(data: string, clear: boolean): void {
 		let parsed: CanvasData = { nodes: [], edges: [] };
+		this.unreadable = false;
 		try {
 			const j = data.trim() ? JSON.parse(data) : {};
 			parsed = { nodes: Array.isArray(j.nodes) ? j.nodes : [], edges: Array.isArray(j.edges) ? j.edges : [] };
 		} catch {
-			new Notice('This canvas file is not valid JSON; showing it empty. It will not be overwritten until you edit it.');
+			this.unreadable = true;
+			new Notice('This canvas file is not valid JSON, so it is shown empty and changes here will not be saved. Fix the file in a text editor first.', 10000);
 		}
 		this.canvas.setData(parsed, clear);
+	}
+
+	async save(clear?: boolean): Promise<void> {
+		if (this.unreadable) {
+			this.requestSave.cancel();
+			return;
+		}
+		await super.save(clear);
 	}
 
 	clear(): void {
