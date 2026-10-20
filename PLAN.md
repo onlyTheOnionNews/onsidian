@@ -417,6 +417,14 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 
 ## 10. Phased roadmap
 
+**Status (2026-10-20):** phases 1 and 2 are done. Known gaps carried forward, each marked `ponytail:` in code:
+- Search is a main-thread linear scan; the metadata index isn't persisted between sessions.
+- `.obsidian/types.json` (explicit property types) isn't read or written.
+- Root splits can't be resized; there are no stacked tabs, pop-out windows, or drag-and-drop in the explorer.
+- PDFs use the browser's built-in viewer (pdf.js in phase 4).
+- Reading view re-renders the whole note on each change.
+- Conflicting external edits: unsaved local edits win (merging comes in phase 5).
+
 1. **Foundation:** capability probe, adapters (FsAccess/OPFS/IDB/Mem), Vault + events, MetadataCache (JS worker + fixtures),
    workspace (splits/tabs/sidedocks), file explorer, CM6 source + reading view, default theme with full CSS variable set.
 2. **Editor parity:** Live Preview, properties UI, embeds, callouts, math/mermaid, quick switcher, command palette, hotkeys,
