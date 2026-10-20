@@ -6,6 +6,7 @@ import { Keymap, eventKey, hotkeyLabel, isMac, type Command, type Hotkey, type M
 import { FuzzySuggestModal, Modal, Setting, SuggestModal, prepareFuzzySearch, renderResults, type FuzzyMatch, type SearchResult } from './ui';
 import { TFile } from './vault';
 import { Notice } from './workspace';
+import { activeBridge, bridgeUserscript, getCorsProxy, hoppscotchVersion, requestUrl, setCorsProxy } from './network';
 
 // ---------------- Command palette ----------------
 
@@ -168,7 +169,7 @@ export class SettingsModal extends Modal {
 		const container = this.contentEl.createDiv('vertical-tabs-container');
 		this.navEl = container.createDiv('vertical-tab-header');
 		this.contentWrapEl = container.createDiv('vertical-tab-content-container');
-		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app), new AboutTab(app)];
+		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app), new NetworkTab(app), new AboutTab(app)];
 	}
 
 	addSettingTab(tab: SettingTab): void {
@@ -453,6 +454,43 @@ class CommunityPluginsTab extends SettingTab {
 				this.app.setting.openTab(this);
 			}));
 		}
+	}
+}
+
+class NetworkTab extends SettingTab {
+	id = 'network';
+	name = 'Network';
+	display(): void {
+		const el = this.containerEl;
+		el.empty();
+		el.createDiv({ cls: 'setting-item-description', text: 'Browsers block pages from reading most other websites (CORS). Plugins that call web APIs, plugin installs from GitHub releases, and reader mode need a bridge you install yourself. obsidian-online runs no server. Requests use the first bridge available below.' });
+		new Setting(el).setName('Active bridge').setDesc(activeBridge());
+
+		const hv = hoppscotchVersion();
+		new Setting(el).setName('Hoppscotch browser extension')
+			.setDesc(hv ? `Detected, version ${hv}${Number(hv.split('.')[1]) < 35 && hv.startsWith('0.') ? ': too old (CVE-2024-34714), update to 0.35 or newer.' : '.'}` : `Not detected. Install it from the Chrome or Firefox store, then add ${location.origin} to its allowed origins (extension popup).`);
+
+		new Setting(el).setName('Userscript bridge').setDesc('For Violentmonkey or Tampermonkey. Your userscript manager asks before each new site the script contacts.')
+			.addButton((b) => b.setButtonText('Download userscript').onClick(() => {
+				const url = URL.createObjectURL(new Blob([bridgeUserscript()], { type: 'text/javascript' }));
+				createEl('a', { href: url, attr: { download: 'obsidian-online-bridge.user.js' } }).click();
+				setTimeout(() => URL.revokeObjectURL(url), 60_000);
+			}));
+
+		new Setting(el).setName('Your own CORS proxy').setDesc('Optional. "https://proxy.example/?url=" style (the target is appended URL-encoded), or a base ending in "/" (the target is appended as-is). Stored on this device only.')
+			.addText((t) => t.setPlaceholder('https://…').setValue(getCorsProxy()).onChange((v) => setCorsProxy(v.trim())));
+
+		const result = el.createDiv('setting-item-description');
+		new Setting(el).setName('Test').setDesc('Fetches https://example.com, which doesn’t allow CORS.')
+			.addButton((b) => b.setButtonText('Run test').onClick(async () => {
+				result.setText('Testing…');
+				try {
+					const r = await requestUrl({ url: 'https://example.com/', throw: false });
+					result.setText(`OK via ${activeBridge()}: HTTP ${r.status}, ${r.text.length} characters.`);
+				} catch (e) {
+					result.setText(`Failed: ${(e as Error).message}`);
+				}
+			}));
 	}
 }
 

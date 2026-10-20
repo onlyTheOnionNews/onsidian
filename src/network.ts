@@ -69,6 +69,51 @@ let userscriptReady = false;
 window.addEventListener('message', (e) => {
 	if (e.source === window && e.data?.type === `${BRIDGE_MSG}:ready`) userscriptReady = true;
 });
+// The userscript may have loaded before this listener existed; ask it to announce itself again.
+window.postMessage({ type: `${BRIDGE_MSG}:ping` }, location.origin);
+
+/** Userscript for Violentmonkey/Tampermonkey, bound to this app's origin. */
+export function bridgeUserscript(): string {
+	return `// ==UserScript==
+// @name         obsidian-online network bridge
+// @namespace    obsidian-online
+// @version      1.0
+// @description  Lets obsidian-online (${location.origin}) make cross-origin requests for plugins. Your userscript manager asks before each new site (@connect).
+// @match        ${location.origin}/*
+// @grant        GM_xmlhttpRequest
+// @connect      *
+// @run-at       document-start
+// ==/UserScript==
+(() => {
+	const T = '${BRIDGE_MSG}';
+	const origin = location.origin;
+	const post = (msg) => window.postMessage(msg, origin);
+	const parseHeaders = (raw) => Object.fromEntries((raw || '').trim().split(/\\r?\\n/).filter(Boolean).map((l) => {
+		const i = l.indexOf(':');
+		return [l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim()];
+	}));
+	window.addEventListener('message', (e) => {
+		if (e.origin !== origin || !e.data || typeof e.data.type !== 'string') return;
+		if (e.data.type === T + ':ping') return post({ type: T + ':ready' });
+		if (e.data.type !== T + ':request') return;
+		const { id, url, method, headers, body } = e.data;
+		GM_xmlhttpRequest({
+			url, method, headers, data: body, responseType: 'arraybuffer',
+			onload: (r) => post({ type: T + ':response', id, status: r.status, headers: parseHeaders(r.responseHeaders), body: r.response }),
+			onerror: () => post({ type: T + ':response', id, error: 'Network error (or the site was not allowed)' }),
+			ontimeout: () => post({ type: T + ':response', id, error: 'Timed out' }),
+		});
+	});
+	post({ type: T + ':ready' });
+})();
+`;
+}
+
+/** Hoppscotch hook version, or null when the extension isn't active for this origin. */
+export function hoppscotchVersion(): string | null {
+	const v = (window as any).__POSTWOMAN_EXTENSION_HOOK__?.getVersion?.();
+	return v ? `${v.major}.${v.minor}` : null;
+}
 let nextId = 0;
 const userscript: Bridge = {
 	name: 'Userscript bridge',
