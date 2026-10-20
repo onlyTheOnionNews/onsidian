@@ -355,3 +355,12 @@ body {
 .community-theme-card img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: var(--radius-s); background: var(--background-secondary); }
 .community-theme-card button { margin-top: auto; }
 .setting-plugin-error { color: var(--text-warning); margin-top: var(--size-2-2); }
+
+/* ---------------- Slides, file recovery ---------------- */
+.slides-container { position: fixed; inset: 0; z-index: var(--layer-slides); background: var(--background-primary); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.slides-stage { width: min(90vw, 1100px); max-height: 85vh; overflow: auto; font-size: calc(var(--font-text-size) * 1.6); }
+.slides-counter { position: absolute; bottom: var(--size-4-4); right: var(--size-4-6); color: var(--text-faint); font-size: var(--font-ui-small); }
+.file-recovery-diff { margin-top: var(--size-4-3); font-family: var(--font-monospace); font-size: var(--font-ui-smaller); white-space: pre-wrap; border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-s); padding: var(--size-4-2); max-height: 60vh; overflow: auto; }
+.file-recovery-line.mod-added { background: rgba(var(--color-green-rgb), 0.15); }
+.file-recovery-line.mod-removed { background: rgba(var(--color-red-rgb), 0.15); }
+.file-recovery-line.mod-same { color: var(--text-muted); }

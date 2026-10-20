@@ -149,6 +149,8 @@ export abstract class SettingTab {
 	id = '';
 	name = '';
 	icon = 'settings';
+	/** Core-plugin options are listed in their own group. */
+	core = false;
 	containerEl: HTMLElement = createDiv('vertical-tab-content');
 	/** Declarative settings (obsidian 1.13). ponytail: stored for plugins, not rendered; plugins also implement display(). */
 	settingItems: unknown[] = [];
@@ -250,7 +252,8 @@ export class SettingsModal extends Modal {
 			}
 		};
 		group('Options', this.settingTabs);
-		group('Community plugins', this.pluginTabs);
+		group('Core plugins', this.pluginTabs.filter((t) => t.core));
+		group('Community plugins', this.pluginTabs.filter((t) => !t.core));
 	}
 }
 

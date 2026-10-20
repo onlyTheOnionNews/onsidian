@@ -35,6 +35,17 @@ export abstract class CorePlugin extends Component {
 		return el;
 	}
 
+	addSettingTab(tab: { core: boolean }): void {
+		tab.core = true;
+		this.app.setting.addSettingTab(tab as any);
+		this.register(() => this.app.setting.removeSettingTab(tab as any));
+	}
+
+	/** Options stored in .obsidian/<file>.json (Obsidian's file names, so desktop and web share them). */
+	async loadOptions<T extends object>(file: string, defaults: T): Promise<T> {
+		return { ...defaults, ...((await this.app.vault.readConfigJson(file)) ?? {}) };
+	}
+
 	addStatusBarItem(): HTMLElement {
 		const el = this.app.addStatusBarItem();
 		this.register(() => el.detach());
