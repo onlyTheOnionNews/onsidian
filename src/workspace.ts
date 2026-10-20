@@ -490,6 +490,8 @@ export class Workspace extends Events {
 	private layoutReadyCbs: (() => any)[] = [];
 	/** Root leaves in most-recently-active order. */
 	private recentRootLeaves: WorkspaceLeaf[] = [];
+	/** Recently opened file paths, newest first (persisted in workspace.json as "lastOpenFiles"). */
+	lastOpenFiles: string[] = [];
 
 	constructor(public app: App) {
 		super();
@@ -684,10 +686,21 @@ export class Workspace extends Events {
 
 	private requestLayoutChange = debounce(() => this.trigger('layout-change'), 50);
 
+	/** The focused Markdown editor (MarkdownView), if any. */
+	get activeEditor(): (View & { editor: any; file: TFile | null }) | null {
+		const v = this.activeLeaf?.view as any;
+		return v?.editor ? v : null;
+	}
+
+	getLastOpenFiles(): string[] {
+		return this.lastOpenFiles.filter((p) => this.app.vault.getAbstractFileByPath(p));
+	}
+
 	private checkFileOpen(): void {
 		const file = this.getActiveFile();
 		if (file !== this.lastActiveFile) {
 			this.lastActiveFile = file;
+			if (file) this.lastOpenFiles = [file.path, ...this.lastOpenFiles.filter((p) => p !== file.path)].slice(0, 50);
 			this.trigger('file-open', file);
 		}
 	}

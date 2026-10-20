@@ -1,7 +1,8 @@
 // File explorer core view (PLAN §5.1), using Obsidian's nav-* / tree-item class names for theme compatibility.
 // ponytail: re-renders the whole tree on any vault change (fine to a few thousand items; diff per item if it lags).
-// Rename/delete use native prompt()/confirm() until the Modal and Menu APIs land in phase 2. No drag-and-drop yet.
+// No drag-and-drop yet.
 import { setIcon } from '../icons';
+import { Menu, promptText } from '../ui';
 import { TAbstractFile, TFile, TFolder } from '../vault';
 import { ItemView, Notice, type WorkspaceLeaf } from '../workspace';
 
@@ -22,7 +23,7 @@ export class FileExplorerView extends ItemView {
 			el.addEventListener('click', cb);
 		};
 		button('square-pen', 'New note', () => void this.app.newNote());
-		button('folder-plus', 'New folder', () => void this.newFolder());
+		button('folder-plus', 'New folder', () => void this.newFolder(this.app.vault.getRoot()));
 		button('chevrons-down-up', 'Collapse all', () => {
 			for (const f of this.app.vault.getAllFolders()) this.collapsed.add(f.path);
 			this.render();
@@ -97,26 +98,46 @@ export class FileExplorerView extends ItemView {
 		self.addEventListener('contextmenu', (e) => this.onContextMenu(e, file));
 	}
 
-	private async onContextMenu(e: MouseEvent, file: TAbstractFile): Promise<void> {
-		e.preventDefault();
-		const action = prompt(`"${file.name}": type r to rename, d to delete`)?.trim().toLowerCase();
-		try {
-			if (action === 'r') {
-				const name = prompt('New name', file instanceof TFile && file.extension === 'md' ? file.basename : file.name)?.trim();
-				if (!name) return;
-				const finalName = file instanceof TFile && file.extension === 'md' && !name.endsWith('.md') ? `${name}.md` : name;
-				await this.app.vault.rename(file, file.parent && !file.parent.isRoot() ? `${file.parent.path}/${finalName}` : finalName);
-			} else if (action === 'd' && confirm(`Move "${file.name}" to the vault's .trash folder?`)) {
-				await this.app.vault.trash(file, true);
-			}
-		} catch (err) {
-			new Notice(String((err as Error).message ?? err));
+	private onContextMenu(e: MouseEvent, file: TAbstractFile): void {
+		const menu = new Menu();
+		const safe = (fn: () => Promise<unknown>) => () => fn().catch((err) => new Notice(String(err?.message ?? err)));
+		if (file instanceof TFolder) {
+			menu.addItem((i) => i.setTitle('New note').setIcon('square-pen').setSection('new').onClick(safe(async () => {
+				const f = await this.app.fileManager.createNewMarkdownFile(file);
+				await this.app.workspace.getLeaf(false).openFile(f, { active: true });
+			})));
+			menu.addItem((i) => i.setTitle('New folder').setIcon('folder-plus').setSection('new').onClick(safe(() => this.newFolder(file))));
+		} else if (file instanceof TFile) {
+			menu.addItem((i) => i.setTitle('Open in new tab').setIcon('file-plus').setSection('open').onClick(safe(() => this.app.workspace.getLeaf('tab').openFile(file))));
+			menu.addItem((i) => i.setTitle('Open to the right').setIcon('separator-vertical').setSection('open').onClick(safe(() => this.app.workspace.getLeaf('split').openFile(file))));
 		}
+		menu.addItem((i) => i.setTitle('Copy path').setIcon('copy').setSection('info').onClick(safe(() => navigator.clipboard.writeText(file.path))));
+		menu.addItem((i) => i.setTitle('Rename…').setIcon('pencil').setSection('action').onClick(safe(() => this.rename(file))));
+		menu.addItem((i) => i.setTitle('Delete').setIcon('trash-2').setWarning(true).setSection('danger').onClick(safe(() => this.app.fileManager.promptForDeletion(file))));
+		this.app.workspace.trigger('file-menu', menu, file, 'file-explorer-context-menu', this.leaf);
+		menu.showAtMouseEvent(e);
 	}
 
-	private async newFolder(): Promise<void> {
-		let path = 'Untitled';
-		for (let n = 1; this.app.vault.getAbstractFileByPath(path); n++) path = `Untitled ${n}`;
+	private async rename(file: TAbstractFile): Promise<void> {
+		const isNote = file instanceof TFile && file.extension === 'md';
+		const name = (await promptText(this.app, 'Rename', isNote ? (file as TFile).basename : file.name))?.trim();
+		if (!name) return;
+		const finalName = isNote && !name.endsWith('.md') ? `${name}.md` : name;
+		await this.app.fileManager.renameFile(file, file.parent && !file.parent.isRoot() ? `${file.parent.path}/${finalName}` : finalName);
+	}
+
+	private async newFolder(parent: TFolder): Promise<void> {
+		const base = parent.isRoot() ? '' : `${parent.path}/`;
+		let path = `${base}Untitled`;
+		for (let n = 1; this.app.vault.getAbstractFileByPath(path); n++) path = `${base}Untitled ${n}`;
+		this.collapsed.delete(parent.path);
 		await this.app.vault.createFolder(path);
+	}
+
+	/** Expand the file's parent folders and scroll it into view. */
+	revealFile(file: TAbstractFile): void {
+		for (let p = file.parent; p && !p.isRoot(); p = p.parent) this.collapsed.delete(p.path);
+		this.render();
+		this.treeEl.querySelector(`[data-path="${CSS.escape(file.path)}"]`)?.scrollIntoView({ block: 'center' });
 	}
 }

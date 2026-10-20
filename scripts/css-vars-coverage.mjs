@@ -1,4 +1,4 @@
-// Reports which CSS variables documented in obsidian-developer-docs are defined by src/theme.css (PLAN §4).
+// Reports which CSS variables documented in obsidian-developer-docs are defined by the CSS files in src/ (PLAN §4).
 // Usage: npm run css-coverage [-- path/to/obsidian-developer-docs]
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,7 +12,8 @@ for (const f of walk(docs).filter((f) => f.endsWith('.md') && !f.replaceAll('\\'
 	const vars = [...readFileSync(f, 'utf8').matchAll(/`(--[a-z0-9-]+)`/g)].map((m) => m[1]);
 	if (vars.length) byFile.set(f.slice(docs.length + 1).replaceAll('\\', '/'), [...new Set(vars)]);
 }
-const defined = new Set([...readFileSync('src/theme.css', 'utf8').matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+const css = walk('src').filter((f) => f.endsWith('.css')).map((f) => readFileSync(f, 'utf8')).join('\n');
+const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
 
 let total = 0, have = 0;
 for (const [file, vars] of [...byFile].sort()) {

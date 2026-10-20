@@ -6,6 +6,7 @@ import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import DOMPurify from 'dompurify';
+import { Editor } from '../editor';
 import MarkdownIt from 'markdown-it';
 import { setIcon } from '../icons';
 import type { TAbstractFile } from '../vault';
@@ -31,7 +32,9 @@ export type MarkdownViewMode = 'source' | 'preview';
 export class MarkdownView extends TextFileView {
 	icon = 'file-text';
 	mode: MarkdownViewMode = 'source';
-	editor: EditorView;
+	/** The API's Editor; the raw CM6 view is `editor.cm` (as in Obsidian). */
+	editor: Editor;
+	cm: EditorView;
 	private sourceEl: HTMLElement;
 	private previewEl: HTMLElement;
 	private previewSizerEl: HTMLElement;
@@ -44,7 +47,8 @@ export class MarkdownView extends TextFileView {
 		this.sourceEl = this.contentEl.createDiv('markdown-source-view cm-s-obsidian mod-cm6 is-readable-line-width');
 		this.previewEl = this.contentEl.createDiv('markdown-reading-view').createDiv('markdown-preview-view markdown-rendered is-readable-line-width');
 		this.previewSizerEl = this.previewEl.createDiv('markdown-preview-sizer markdown-preview-section');
-		this.editor = new EditorView({ parent: this.sourceEl, state: this.makeState('') });
+		this.cm = new EditorView({ parent: this.sourceEl, state: this.makeState('') });
+		this.editor = new Editor(this.cm);
 		this.modeButton = this.addAction('book-open', 'Switch to reading view', () => this.setMode(this.mode === 'source' ? 'preview' : 'source'));
 		this.previewEl.addEventListener('click', (e) => this.onPreviewClick(e));
 		this.applyMode();
@@ -66,7 +70,7 @@ export class MarkdownView extends TextFileView {
 	}
 
 	onunload(): void {
-		this.editor.destroy();
+		this.cm.destroy();
 	}
 
 	getState(): Record<string, unknown> {
@@ -79,19 +83,19 @@ export class MarkdownView extends TextFileView {
 	}
 
 	getViewData(): string {
-		return this.editor.state.doc.toString();
+		return this.cm.state.doc.toString();
 	}
 
 	setViewData(data: string, clear: boolean): void {
 		this.data = data;
-		if (clear) this.editor.setState(this.makeState(data));
-		else this.editor.dispatch({ changes: { from: 0, to: this.editor.state.doc.length, insert: data } });
+		if (clear) this.cm.setState(this.makeState(data));
+		else this.cm.dispatch({ changes: { from: 0, to: this.cm.state.doc.length, insert: data } });
 		this.dirty = false;
 		if (this.mode === 'preview') this.renderPreview();
 	}
 
 	clear(): void {
-		this.editor.setState(this.makeState(''));
+		this.cm.setState(this.makeState(''));
 		this.previewSizerEl.empty();
 	}
 

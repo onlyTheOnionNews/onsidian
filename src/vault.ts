@@ -1,7 +1,7 @@
 // Vault + TAbstractFile/TFile/TFolder (obsidian.d.ts). In-memory tree mirrored from a DataAdapter.
 import type { DataWriteOptions, FileStats } from 'obsidian';
 import { BaseAdapter, basename, dirname, join } from './adapters';
-import { Events } from './events';
+import { Events, debounce } from './events';
 
 export function normalizePath(path: string): string {
 	path = path.replace(/[\\  ]/g, (c) => (c === '\\' ? '/' : ' ')).replace(/\/+/g, '/').replace(/^\/|\/$/g, '');
@@ -38,8 +38,43 @@ function setPath(f: TAbstractFile, path: string): void {
 	}
 }
 
+/** Defaults for .obsidian/app.json + appearance.json keys (Obsidian's names, so vault folders stay interchangeable). */
+export const DEFAULT_CONFIG: Record<string, unknown> = {
+	// app.json
+	readableLineLength: true,
+	spellcheck: true,
+	defaultViewMode: 'source',
+	livePreview: true,
+	showLineNumber: false,
+	foldHeading: true,
+	foldIndent: true,
+	strictLineBreaks: false,
+	propertiesInDocument: 'visible',
+	newLinkFormat: 'shortest',
+	useMarkdownLinks: false,
+	alwaysUpdateLinks: true,
+	newFileLocation: 'root',
+	newFileFolderPath: '/',
+	attachmentFolderPath: '/',
+	promptDelete: true,
+	trashOption: 'local',
+	// appearance.json
+	theme: 'system',
+	accentColor: '',
+	baseFontSize: 16,
+	interfaceFontFamily: '',
+	textFontFamily: '',
+	monospaceFontFamily: '',
+	cssTheme: '',
+	enabledCssSnippets: [],
+};
+
+const APPEARANCE_KEYS = new Set(['theme', 'accentColor', 'baseFontSize', 'interfaceFontFamily', 'textFontFamily', 'monospaceFontFamily', 'cssTheme', 'enabledCssSnippets']);
+
 export class Vault extends Events {
 	configDir = '.obsidian';
+	/** Merged app.json + appearance.json, as read from disk (defaults are applied by getConfig). */
+	config: Record<string, unknown> = {};
 	private files = new Map<string, TAbstractFile>();
 	private root: TFolder;
 	private contentCache = new Map<string, string>();
@@ -55,6 +90,46 @@ export class Vault extends Events {
 	getName(): string {
 		return this.adapter.getName();
 	}
+
+	// ---------- .obsidian config (internal API in Obsidian; plugins and Relay use getConfig/setConfig) ----------
+
+	async readConfigJson(name: string): Promise<Record<string, any> | null> {
+		const path = `${this.configDir}/${name}.json`;
+		try {
+			return (await this.adapter.exists(path)) ? JSON.parse(await this.adapter.read(path)) : null;
+		} catch (e) {
+			console.warn(`Ignoring unreadable ${path}`, e);
+			return null;
+		}
+	}
+
+	async writeConfigJson(name: string, data: unknown): Promise<void> {
+		await this.adapter.mkdir(this.configDir);
+		await this.adapter.write(`${this.configDir}/${name}.json`, JSON.stringify(data, null, 2));
+	}
+
+	async loadConfig(): Promise<void> {
+		this.config = { ...(await this.readConfigJson('app')), ...(await this.readConfigJson('appearance')) };
+	}
+
+	getConfig(key: string): any {
+		return key in this.config ? this.config[key] : DEFAULT_CONFIG[key];
+	}
+
+	setConfig(key: string, value: unknown): void {
+		if (value === undefined || value === DEFAULT_CONFIG[key]) delete this.config[key];
+		else this.config[key] = value;
+		this.saveConfig();
+		this.trigger('config-changed', key);
+	}
+
+	private saveConfig = debounce(async () => {
+		const app: Record<string, unknown> = {};
+		const appearance: Record<string, unknown> = {};
+		for (const [k, v] of Object.entries(this.config)) (APPEARANCE_KEYS.has(k) ? appearance : app)[k] = v;
+		await this.writeConfigJson('app', app);
+		await this.writeConfigJson('appearance', appearance);
+	}, 500);
 
 	/** Build the tree from storage. Triggers 'create' per item, as Obsidian does on first load. */
 	async load(): Promise<void> {

@@ -1,7 +1,9 @@
 // Boot: DOM helpers → theme → capability probe → vault picker → App.
 import './dom';
 import './theme.css';
+import './ui.css';
 import { App } from './app';
+import { applyAppearance } from './appearance';
 import { probeCaps, type Caps } from './caps';
 import {
 	addBrowserVault, addFolderVault, browserVaultKind, forgetVault, listVaults, lockVault, openAdapter,
@@ -25,16 +27,6 @@ This vault lives in your browser. Notes are plain Markdown.
 `;
 
 const LAST_VAULT_KEY = 'obsidian-online:last-vault';
-
-function syncThemeClass(): void {
-	const dark = matchMedia('(prefers-color-scheme: dark)');
-	const apply = () => {
-		document.body.toggleClass('theme-dark', dark.matches);
-		document.body.toggleClass('theme-light', !dark.matches);
-	};
-	apply();
-	dark.addEventListener('change', apply);
-}
 
 function storageGet(key: string): string | null {
 	try { return localStorage.getItem(key); } catch { return null; }
@@ -132,7 +124,7 @@ async function showPicker(caps: Caps, error?: string): Promise<void> {
 }
 
 async function boot(): Promise<void> {
-	syncThemeClass();
+	applyAppearance(null); // system scheme until a vault's appearance.json is loaded
 	const caps = await probeCaps();
 	// Reopen the last browser vault directly. Folder vaults need a click to re-grant permission, so they go via the picker.
 	const last = storageGet(LAST_VAULT_KEY);

@@ -69,6 +69,13 @@ for (const proto of [Node.prototype, DocumentFragment.prototype]) {
 }
 
 def(Node.prototype, 'detach', function (this: Node) { this.parentNode?.removeChild(this); });
+def(Node.prototype, 'appendText', function (this: Node, val: string) { this.appendChild(document.createTextNode(val)); });
+def(Node.prototype, 'insertAfter', function (this: Node, node: Node, child: Node | null) {
+	return this.insertBefore(node, child ? child.nextSibling : this.firstChild);
+});
+def(Node.prototype, 'instanceOf', function (this: Node, type: abstract new (...a: any[]) => unknown) { return this instanceof type; });
+Object.defineProperty(Node.prototype, 'doc', { configurable: true, get(this: Node) { return this.ownerDocument ?? document; } });
+Object.defineProperty(Node.prototype, 'win', { configurable: true, get(this: Node) { return (this.ownerDocument ?? document).defaultView ?? window; } });
 def(Node.prototype, 'empty', function (this: Node) { while (this.lastChild) this.removeChild(this.lastChild); });
 def(Node.prototype, 'setText', function (this: Node, t: string | DocumentFragment) {
 	if (typeof t === 'string') this.textContent = t;
