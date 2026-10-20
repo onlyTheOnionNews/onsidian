@@ -2,12 +2,16 @@
 import type { BaseAdapter } from './adapters';
 import { applyAppearance } from './appearance';
 import { registerCoreCommands } from './commands';
+import { InternalPlugins } from './coreplugins';
 import { FileManager } from './filemanager';
 import { Commands, Keymap, Scope } from './keymap';
 import { MetadataCache } from './metadata';
 import { SettingsModal } from './modals';
 import { FileExplorerView } from './views/explorer';
 import { MarkdownView } from './views/markdown';
+import { BookmarksPlugin } from './views/bookmarks';
+import { BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, PagePreviewPlugin, TagPanePlugin, WordCountPlugin } from './views/panels';
+import { GlobalSearchPlugin } from './views/search';
 import { Vault } from './vault';
 import { ViewRegistry, Workspace, type WorkspaceLeaf } from './workspace';
 
@@ -22,6 +26,7 @@ export class App {
 	commands: Commands;
 	workspace: Workspace;
 	setting: SettingsModal;
+	internalPlugins: InternalPlugins;
 	/** Root element: .app-container > .horizontal-main-container > .workspace, plus the status bar. */
 	containerEl = createDiv('app-container');
 	statusBarEl: HTMLElement;
@@ -33,6 +38,10 @@ export class App {
 		this.commands = new Commands(this);
 		this.workspace = new Workspace(this);
 		this.setting = new SettingsModal(this);
+		this.internalPlugins = new InternalPlugins(this);
+		for (const P of [GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin]) {
+			this.internalPlugins.add(new P(this));
+		}
 		this.containerEl.createDiv('horizontal-main-container').appendChild(this.workspace.containerEl);
 		this.statusBarEl = this.containerEl.createDiv('status-bar');
 
@@ -57,6 +66,7 @@ export class App {
 		await this.vault.load();
 		this.workspace.initLayout();
 		await this.workspace.ensureSideLeaf('file-explorer', 'left', { reveal: true });
+		await this.internalPlugins.load();
 		// Index in the background: the UI is usable while a large vault is still being parsed.
 		void this.metadataCache.initialize();
 	}

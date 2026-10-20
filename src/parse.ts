@@ -103,6 +103,8 @@ export function parseMetadata(src: string): CachedMetadata {
 	};
 
 	const isBlank = (n: number) => n >= lines.length || !lines[n].text.trim();
+	// Block starts that end a paragraph or list item instead of continuing it lazily (CommonMark).
+	const interrupts = (text: string) => HEADING.test(text) || FENCE.test(text) || HR.test(text) || /^ {0,3}>/.test(text);
 
 	// --- Block scan ---
 	while (i < lines.length) {
@@ -157,7 +159,7 @@ export function parseMetadata(src: string): CachedMetadata {
 			while (!isBlank(i)) scanInline(i++);
 		} else {
 			type = 'paragraph';
-			while (!isBlank(i) && !FENCE.test(lines[i].text) && !HEADING.test(lines[i].text) && (i === start || !LIST_ITEM.test(lines[i].text))) scanInline(i++);
+			while (!isBlank(i) && (i === start || (!interrupts(lines[i].text) && !LIST_ITEM.test(lines[i].text)))) scanInline(i++);
 		}
 		const section: SectionCache = { type, position: span(start, i - 1) };
 
@@ -200,7 +202,7 @@ export function parseMetadata(src: string): CachedMetadata {
 				};
 				listItems.push(current);
 				stack.push({ indent, line: n });
-			} else if (current && (/^\s/.test(text) || !isBlank(n - 1))) {
+			} else if (current && (/^\s/.test(text) || (!isBlank(n - 1) && !interrupts(text)))) {
 				current.position.end = loc(n, text.length); // continuation / lazy line
 			} else {
 				break;

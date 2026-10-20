@@ -507,7 +507,6 @@ export class Workspace extends Events {
 	initLayout(): void {
 		this.rootSplit.ensureLeaf();
 		for (const side of [this.leftSplit, this.rightSplit]) side.insertChild(0, new WorkspaceTabs(this, true));
-		this.rightSplit.collapse(); // nothing lives there until backlinks/outline (phase 2)
 		this.layoutReady = true;
 		for (const cb of this.layoutReadyCbs.splice(0)) cb();
 		this.trigger('layout-change');

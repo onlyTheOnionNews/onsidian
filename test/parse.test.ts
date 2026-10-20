@@ -81,6 +81,12 @@ test('empty note has no cache keys; invalid YAML yields no frontmatter', () => {
 	expect(c.frontmatterPosition?.end.line).toBe(2);
 });
 
+test('headings and quotes interrupt a list (no lazy continuation)', () => {
+	const c = parseMetadata('- item\n## Heading\n- other\n> quote');
+	expect(c.headings?.map((h) => h.heading)).toEqual(['Heading']);
+	expect(c.sections?.map((s) => s.type)).toEqual(['list', 'heading', 'list', 'blockquote']);
+});
+
 test('parseLinktext', () => {
 	expect(parseLinktext('foo#bar')).toEqual({ path: 'foo', subpath: '#bar' });
 	expect(parseLinktext('foo')).toEqual({ path: 'foo', subpath: '' });

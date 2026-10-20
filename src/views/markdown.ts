@@ -314,7 +314,8 @@ export class MarkdownView extends TextFileView {
 			e.preventDefault();
 			void this.app.workspace.openLinkText(a.getAttr('data-href') ?? '', this.file?.path ?? '', e.ctrlKey || e.metaKey ? 'tab' : false);
 		} else if (a.hasClass('tag')) {
-			e.preventDefault(); // opens tag search once global search exists (phase 2f)
+			e.preventDefault();
+			void (this.app.internalPlugins.getEnabledPluginById('global-search') as any)?.openGlobalSearch(`tag:${a.getText()}`);
 		}
 	}
 

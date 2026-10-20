@@ -167,7 +167,7 @@ export class SettingsModal extends Modal {
 		const container = this.contentEl.createDiv('vertical-tabs-container');
 		this.navEl = container.createDiv('vertical-tab-header');
 		this.contentWrapEl = container.createDiv('vertical-tab-content-container');
-		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new AboutTab(app)];
+		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new AboutTab(app)];
 	}
 
 	addSettingTab(tab: SettingTab): void {
@@ -355,6 +355,19 @@ class HotkeysTab extends SettingTab {
 		else commands.customKeys[id] = keys;
 		void vault.writeConfigJson('hotkeys', commands.customKeys);
 		rerender();
+	}
+}
+
+class CorePluginsTab extends SettingTab {
+	id = 'plugins';
+	name = 'Core plugins';
+	display(): void {
+		const el = this.containerEl;
+		el.empty();
+		for (const { instance, enabled } of Object.values(this.app.internalPlugins.plugins)) {
+			new Setting(el).setName(instance.name).setDesc(instance.description)
+				.addToggle((t) => t.setValue(enabled).onChange((v) => this.app.internalPlugins.setEnabled(instance.id, v)));
+		}
 	}
 }
 
