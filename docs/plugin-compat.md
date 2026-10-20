@@ -84,6 +84,15 @@ members we don't implement are collected in `window.__obsidianOnlineMissing`.
 | Quick Switcher++ | 6.2.0 | ok | 11 |  |  |
 | Paste URL into selection | 1.11.4 | ok | 1 |  |  |
 
+## After phase 4 (pdf.js, canvas, Bases added)
+
+Re-run: **35 ok, 9 runtime errors, 6 failed to load.** Changes from the table above:
+- **PDF++** gets past the missing pdf.js, then fails reaching into the PDF view's internal viewer objects (`loadFile` on a child viewer).
+- **Advanced Canvas** loaded before only because there was nothing to patch. With Bases present, it patches Bases' internal table-view registry and errors.
+- **PDF Annotator** still loads cleanly.
+
+Both regressions-in-count are the same category as the remaining failures: deep fidelity to undocumented core-view internals.
+
 ## Known gaps behind the remaining failures
 
 - **pdf.js** (PDF++, PDF Annotator features): phase 4.

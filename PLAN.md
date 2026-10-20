@@ -417,7 +417,7 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 
 ## 10. Phased roadmap
 
-**Status (2026-10-20):** phases 1–3 are done.
+**Status (2026-10-20):** phases 1–4 are done. Phase 4: note core plugins, file recovery, graph view, Canvas, Bases (4 core layouts; Map comes from the official Maps plugin through `registerBasesView`), pdf.js viewer, web viewer, importer, static-site export.
 - **Plugins:** 36 of the top 50 mobile-compatible plugins load cleanly (`docs/plugin-compat.md`). API coverage is 128/159 runtime exports (`npm run api-coverage`).
 - **Installs:** only 1 of the top 40 plugins is installable via jsDelivr, so one-click installs need a network bridge (§6.3) or manual install. See open question 6.
 
@@ -428,6 +428,12 @@ Known gaps carried forward, each marked `ponytail:` in code:
 - PDFs use the browser's built-in viewer (pdf.js in phase 4).
 - Reading view re-renders the whole note on each change.
 - Conflicting external edits: unsaved local edits win (merging comes in phase 5).
+- Graph view is Canvas 2D with physics on the main thread (worker/WebGL for very large vaults).
+- Canvas text cards edit in a plain textarea, not a full editor.
+- PDF view has no outline sidebar or annotation tools.
+- Importer has no OneNote (needs a Microsoft app registration for the hosted origin) or Apple Notes (needs SQLite via wasm).
+- Bases filter editing is in the YAML source; the toolbar covers views, layout, sort, properties, grouping and view settings.
+- Main bundle is 1.36 MB (423 KB gzipped); lazy-loading core plugins is a phase 6 task.
 
 1. **Foundation:** capability probe, adapters (FsAccess/OPFS/IDB/Mem), Vault + events, MetadataCache (JS worker + fixtures),
    workspace (splits/tabs/sidedocks), file explorer, CM6 source + reading view, default theme with full CSS variable set.
