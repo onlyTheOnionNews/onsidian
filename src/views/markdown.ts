@@ -5,7 +5,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { yamlFrontmatter } from '@codemirror/lang-yaml';
 import { foldGutter, foldKeymap, HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { languages } from '@codemirror/language-data';
-import { Compartment, EditorState, type Extension } from '@codemirror/state';
+import { Compartment, EditorState, StateField, type Extension } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { Editor } from '../editor';
@@ -43,6 +43,12 @@ const obsidianClasses = HighlightStyle.define([
 
 export type MarkdownViewMode = 'source' | 'preview';
 
+/** obsidian.d.ts: the MarkdownView/MarkdownFileInfo owning a CM6 state (editorViewField is its deprecated alias). */
+export const editorInfoField = StateField.define<MarkdownView | null>({ create: () => null, update: (v) => v });
+export const editorViewField = editorInfoField;
+/** obsidian.d.ts: true when the editor is in Live Preview. */
+export const editorLivePreviewField = StateField.define<boolean>({ create: () => false, update: (v) => v });
+
 export class MarkdownView extends TextFileView {
 	icon = 'file-text';
 	mode: MarkdownViewMode;
@@ -63,6 +69,7 @@ export class MarkdownView extends TextFileView {
 	private rendered: Promise<void> = Promise.resolve();
 	private options = new Compartment();
 	private lp = new Compartment();
+	private pluginExt = new Compartment();
 
 	constructor(leaf: WorkspaceLeaf) {
 		super(leaf);
@@ -176,6 +183,11 @@ export class MarkdownView extends TextFileView {
 		this.app.workspace.onLeafStateChanged(this.leaf);
 	}
 
+	/** @internal workspace.updateOptions() → re-read plugin editor extensions. */
+	reconfigurePluginExtensions(): void {
+		this.cm.dispatch({ effects: this.pluginExt.reconfigure(this.app.workspace.editorExtensions.slice()) });
+	}
+
 	setLivePreview(on: boolean): void {
 		if (on === this.livePreview) return;
 		this.livePreview = on;
@@ -221,6 +233,10 @@ export class MarkdownView extends TextFileView {
 				autocompletion({ override: [(ctx) => this.complete(ctx)], icons: false }),
 				this.options.of([]),
 				this.lp.of(this.lpExtension()),
+				editorInfoField.init(() => this),
+				editorLivePreviewField.init(() => this.livePreview),
+				// Plugin editor extensions (Plugin.registerEditorExtension); refreshed by workspace.updateOptions().
+				this.pluginExt.of(this.app.workspace.editorExtensions.slice()),
 				EditorView.updateListener.of((u) => {
 					if (!u.docChanged) return;
 					this.dirty = true;

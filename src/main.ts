@@ -5,9 +5,10 @@ import './ui.css';
 import './markdown.css';
 import { App } from './app';
 import { applyAppearance } from './appearance';
+import { ButtonComponent, Modal } from './ui';
 import { probeCaps, type Caps } from './caps';
 import {
-	addBrowserVault, addFolderVault, browserVaultKind, forgetVault, listVaults, lockVault, openAdapter,
+	addBrowserVault, addFolderVault, browserVaultKind, forgetVault, listVaults, lockVault, openAdapter, rememberFileCount,
 	type VaultEntry, type VaultKind,
 } from './vaults';
 
@@ -41,12 +42,32 @@ async function openVault(v: VaultEntry, caps: Caps, isNew = false): Promise<void
 	if (!(await lockVault(v.id))) throw new Error(`"${v.name}" is already open in another tab.`);
 	const adapter = await openAdapter(v);
 	if (isNew && v.kind !== 'fs') await adapter.write('Welcome.md', WELCOME);
-	const app = new App(adapter, caps.workers);
+	const app = new App(adapter, caps.workers, v.id);
 	(globalThis as any).app = app; // plugins and devtools expect a global `app`
 	document.body.replaceChildren(app.containerEl);
 	document.title = `${v.name} - obsidian-online`;
 	await app.load();
 	if (v.kind !== 'mem') storageSet(LAST_VAULT_KEY, v.id);
+
+	// A vault that had files but opens empty: the browser cleared its storage (eviction, "clear site data").
+	const count = app.vault.getFiles().length;
+	if (!count && (v.fileCount ?? 0) > 0) {
+		const m = new Modal(app).setTitle('This vault’s storage was cleared')
+			.setContent(`It had ${v.fileCount} file${v.fileCount === 1 ? "" : "s"} the last time it was opened, but the browser’s storage for it is now empty. Browser storage can be cleared when the browser needs space or site data is deleted. If you have a .zip backup, import it now.`);
+		const buttons = m.modalEl.createDiv('modal-button-container');
+		new ButtonComponent(buttons).setButtonText('Import .zip backup').setCta().onClick(() => {
+			m.close();
+			app.commands.executeCommandById('app:import-zip');
+		});
+		new ButtonComponent(buttons).setButtonText('Continue with empty vault').onClick(() => {
+			m.close();
+			void rememberFileCount(v, 0);
+		});
+		m.open();
+	} else {
+		void rememberFileCount(v, count);
+	}
+	window.addEventListener('pagehide', () => void rememberFileCount(v, app.vault.getFiles().length));
 
 	const storage = app.addStatusBarItem();
 	storage.setText(KIND_LABEL[v.kind]);

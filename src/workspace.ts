@@ -558,6 +558,18 @@ export class Workspace extends Events {
 	private layoutReadyCbs: (() => any)[] = [];
 	/** Root leaves in most-recently-active order. */
 	private recentRootLeaves: WorkspaceLeaf[] = [];
+	/** CM6 extensions registered by plugins (Plugin.registerEditorExtension). Mutate, then call updateOptions(). */
+	editorExtensions: any[] = [];
+	/** Plugin EditorSuggests, tried in order on each edit (`workspace.editorSuggest.suggests` in Obsidian). */
+	editorSuggest: { suggests: any[] } = { suggests: [] };
+	/** Plugin.registerHoverLinkSource entries (for page-preview settings). */
+	hoverLinkSources: Record<string, { display: string; defaultMod: boolean }> = {};
+
+	/** Re-apply editor extensions to all open Markdown editors. */
+	updateOptions(): void {
+		this.iterateAllLeaves((l) => (l.view as any)?.reconfigurePluginExtensions?.());
+	}
+
 	/** Recently opened file paths, newest first (persisted in workspace.json as "lastOpenFiles"). */
 	lastOpenFiles: string[] = [];
 
@@ -574,6 +586,14 @@ export class Workspace extends Events {
 			});
 		});
 		window.addEventListener('resize', () => this.trigger('resize'));
+		// EditorSuggest: the first suggest whose onTrigger matches opens; the rest close.
+		this.on('editor-change', async (editor: any, info: any) => {
+			let opened = false;
+			for (const s of this.editorSuggest.suggests) {
+				if (opened) s.close();
+				else opened = await s.trigger(editor, info?.file ?? null);
+			}
+		});
 	}
 
 	/** Build the default layout. Called once views are registered. */

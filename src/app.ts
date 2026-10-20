@@ -5,7 +5,9 @@ import { registerCoreCommands } from './commands';
 import { InternalPlugins } from './coreplugins';
 import { FileManager } from './filemanager';
 import { Commands, Keymap, Scope } from './keymap';
+import { pluginRequire } from './api';
 import { MetadataCache } from './metadata';
+import { PluginManager } from './plugins';
 import { SettingsModal } from './modals';
 import { FileExplorerView } from './views/explorer';
 import { MarkdownView } from './views/markdown';
@@ -27,11 +29,14 @@ export class App {
 	workspace: Workspace;
 	setting: SettingsModal;
 	internalPlugins: InternalPlugins;
+	plugins: PluginManager;
+	/** Obsidian URI actions registered by plugins (registerObsidianProtocolHandler). */
+	protocolHandlers = new Map<string, (params: Record<string, string>) => any>();
 	/** Root element: .app-container > .horizontal-main-container > .workspace, plus the status bar. */
 	containerEl = createDiv('app-container');
 	statusBarEl: HTMLElement;
 
-	constructor(adapter: BaseAdapter, useWorker: boolean) {
+	constructor(adapter: BaseAdapter, useWorker: boolean, public appId: string) {
 		this.vault = new Vault(adapter);
 		this.metadataCache = new MetadataCache(this.vault, useWorker);
 		this.fileManager = new FileManager(this);
@@ -39,6 +44,7 @@ export class App {
 		this.workspace = new Workspace(this);
 		this.setting = new SettingsModal(this);
 		this.internalPlugins = new InternalPlugins(this);
+		this.plugins = new PluginManager(this, appId, pluginRequire);
 		for (const P of [GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin]) {
 			this.internalPlugins.add(new P(this));
 		}
@@ -70,6 +76,8 @@ export class App {
 		await this.internalPlugins.load();
 		await this.workspace.initLayout();
 		this.guardUnsavedChanges();
+		// Community plugins load after the layout, as in Obsidian (their views then claim pending leaves).
+		await this.plugins.initialize();
 		// Index in the background: the UI is usable while a large vault is still being parsed.
 		void this.metadataCache.initialize();
 	}

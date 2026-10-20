@@ -45,8 +45,10 @@ export class Events {
 
 export class Component {
 	_loaded = false;
-	private _children: Component[] = [];
-	private _cleanups: (() => any)[] = [];
+	/** @internal (Plugin.load awaits onload, then loads children itself) */
+	_children: Component[] = [];
+	/** @internal */
+	_cleanups: (() => any)[] = [];
 
 	load(): void {
 		if (this._loaded) return;

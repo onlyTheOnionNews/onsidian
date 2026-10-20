@@ -1,0 +1,287 @@
+// The `obsidian` module that community plugins `require('obsidian')`, plus the require() shim for their other externals.
+// Coverage against obsidian.d.ts: `npm run api-coverage`.
+import * as cmAutocomplete from '@codemirror/autocomplete';
+import * as cmCommands from '@codemirror/commands';
+import * as cmLanguage from '@codemirror/language';
+import * as cmState from '@codemirror/state';
+import * as cmView from '@codemirror/view';
+import * as lezerCommon from '@lezer/common';
+import * as lezerHighlight from '@lezer/highlight';
+import DOMPurify from 'dompurify';
+import { dump as dumpYaml, load as loadYaml, CORE_SCHEMA } from 'js-yaml';
+import moment from 'moment';
+import { BaseAdapter } from './adapters';
+import { Editor } from './editor';
+import { Component, Events, debounce } from './events';
+import { FileManager } from './filemanager';
+import { addIcon, getIcon, removeIcon, setIcon } from './icons';
+import { Keymap, Scope, isMac } from './keymap';
+import { MetadataCache } from './metadata';
+import { SettingTab } from './modals';
+import { request, requestUrl } from './network';
+import { getAllTags, getLinkpath, parseLinktext } from './parse';
+import { Plugin, PluginSettingTab } from './plugins';
+import {
+	MarkdownPreviewRenderer, MarkdownRenderChild, MarkdownRenderer, finishRenderMath, loadMathJax, loadMermaid, loadPrism, renderMath,
+} from './render';
+import { AbstractInputSuggest, EditorSuggest, PopoverSuggest } from './suggest';
+import {
+	ButtonComponent, ColorComponent, DropdownComponent, ExtraButtonComponent, FuzzySuggestModal, Menu, MenuItem, Modal,
+	Setting, SliderComponent, SuggestModal, TextAreaComponent, TextComponent, ToggleComponent,
+	prepareFuzzySearch, prepareSimpleSearch, renderMatches, renderResults,
+} from './ui';
+import { TAbstractFile, TFile, TFolder, Vault, normalizePath } from './vault';
+import { MarkdownView, editorInfoField, editorLivePreviewField, editorViewField } from './views/markdown';
+import {
+	FileView, ItemView, Notice, TextFileView, View, Workspace, WorkspaceItem, WorkspaceLeaf, WorkspaceParent, WorkspaceRibbon,
+	WorkspaceRoot, WorkspaceSidedock, WorkspaceSplit, WorkspaceTabs,
+} from './workspace';
+
+/** The obsidian.d.ts version this host targets (plugins gate features with requireApiVersion). */
+export const apiVersion = '1.14.4';
+
+const ua = navigator.userAgent;
+export const Platform = {
+	isDesktop: true,
+	isMobile: false,
+	isDesktopApp: false,
+	isMobileApp: false,
+	isIosApp: false,
+	isAndroidApp: false,
+	isPhone: false,
+	isTablet: false,
+	isMacOS: isMac,
+	isWin: /Windows/.test(ua),
+	isLinux: /Linux/.test(ua) && !/Android/.test(ua),
+	isSafari: /Safari/.test(ua) && !/Chrome|Chromium|Edg/.test(ua),
+	resourcePathPrefix: 'blob:',
+	/** obsidian-online extension: lets plugins detect the web build. */
+	isWeb: true,
+};
+
+function compareVersions(a: string, b: string): number {
+	const pa = a.split('.').map(Number);
+	const pb = b.split('.').map(Number);
+	for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+		const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+		if (d) return d;
+	}
+	return 0;
+}
+
+export function requireApiVersion(version: string): boolean {
+	return compareVersions(apiVersion, version) >= 0;
+}
+
+export const parseYaml = (yaml: string): any => loadYaml(yaml, { schema: CORE_SCHEMA });
+export const stringifyYaml = (obj: any): string => dumpYaml(obj, { schema: CORE_SCHEMA, lineWidth: -1 });
+
+export function sanitizeHTMLToDom(html: string): DocumentFragment {
+	return DOMPurify.sanitize(html, { RETURN_DOM_FRAGMENT: true });
+}
+
+/** Minimal HTML → Markdown for common elements (headings, emphasis, links, lists, code, paragraphs). */
+export function htmlToMarkdown(html: string | HTMLElement | Document | DocumentFragment): string {
+	const root = typeof html === 'string' ? sanitizeHTMLToDom(html) : html;
+	const walk = (n: Node): string => {
+		if (n.nodeType === Node.TEXT_NODE) return n.textContent ?? '';
+		if (!(n instanceof Element)) return [...n.childNodes].map(walk).join('');
+		const inner = [...n.childNodes].map(walk).join('');
+		switch (n.tagName) {
+			case 'H1': case 'H2': case 'H3': case 'H4': case 'H5': case 'H6': return `\n${'#'.repeat(Number(n.tagName[1]))} ${inner.trim()}\n\n`;
+			case 'STRONG': case 'B': return `**${inner}**`;
+			case 'EM': case 'I': return `*${inner}*`;
+			case 'DEL': case 'S': return `~~${inner}~~`;
+			case 'MARK': return `==${inner}==`;
+			case 'CODE': return n.parentElement?.tagName === 'PRE' ? inner : `\`${inner}\``;
+			case 'PRE': return `\n\`\`\`\n${inner.replace(/\n$/, '')}\n\`\`\`\n\n`;
+			case 'A': return `[${inner}](${n.getAttribute('href') ?? ''})`;
+			case 'IMG': return `![${n.getAttribute('alt') ?? ''}](${n.getAttribute('src') ?? ''})`;
+			case 'BR': return '\n';
+			case 'P': case 'DIV': return `${inner.trim()}\n\n`;
+			case 'LI': return `${n.parentElement?.tagName === 'OL' ? `${[...n.parentElement.children].indexOf(n) + 1}.` : '-'} ${inner.trim()}\n`;
+			case 'UL': case 'OL': return `${inner}\n`;
+			case 'BLOCKQUOTE': return inner.trim().split('\n').map((l) => `> ${l}`).join('\n') + '\n\n';
+			case 'HR': return '\n---\n\n';
+			default: return inner;
+		}
+	};
+	return walk(root).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export function arrayBufferToBase64(buf: ArrayBuffer): string {
+	let s = '';
+	for (const b of new Uint8Array(buf)) s += String.fromCharCode(b);
+	return btoa(s);
+}
+
+export function base64ToArrayBuffer(b64: string): ArrayBuffer {
+	return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+}
+
+export function arrayBufferToHex(buf: ArrayBuffer): string {
+	return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function hexToArrayBuffer(hex: string): ArrayBuffer {
+	return new Uint8Array(hex.match(/../g)?.map((h) => parseInt(h, 16)) ?? []).buffer;
+}
+
+export function stripHeading(heading: string): string {
+	return heading.replace(/[!"#$%&()*+,.:;<=>?@^`{|}~/[\]\\\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function stripHeadingForLink(heading: string): string {
+	return heading.replace(/[:#|^\\\r\n]|%%|\[\[|\]\]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function parseFrontMatterAliases(fm: any): string[] | null {
+	return parseFrontMatterStringArray(fm, /^alias(es)?$/i);
+}
+
+export function parseFrontMatterTags(fm: any): string[] | null {
+	const tags = parseFrontMatterStringArray(fm, /^tags?$/i, true);
+	return tags?.map((t) => (t.startsWith('#') ? t : `#${t}`)) ?? null;
+}
+
+export function parseFrontMatterEntry(fm: any, key: string | RegExp): any | null {
+	if (!fm) return null;
+	for (const k of Object.keys(fm)) if (typeof key === 'string' ? k === key : key.test(k)) return fm[k];
+	return null;
+}
+
+export function parseFrontMatterStringArray(fm: any, key: string | RegExp, nospaces = false): string[] | null {
+	const v = parseFrontMatterEntry(fm, key);
+	if (v == null) return null;
+	const list = Array.isArray(v) ? v : String(v).split(nospaces ? /[,\s]+/ : /,/);
+	const out = list.map((x) => String(x).trim()).filter(Boolean);
+	return out.length ? out : null;
+}
+
+export function getFrontMatterInfo(content: string): { exists: boolean; frontmatter: string; from: number; to: number; contentStart: number } {
+	const m = /^---\r?\n([\s\S]*?\r?\n)?---(\r?\n|$)/.exec(content);
+	if (!m) return { exists: false, frontmatter: '', from: 0, to: 0, contentStart: 0 };
+	return { exists: true, frontmatter: m[1] ?? '', from: 4, to: 4 + (m[1]?.length ?? 0), contentStart: m[0].length };
+}
+
+export function iterateCacheRefs(cache: any, cb: (ref: any) => boolean | void): boolean {
+	for (const ref of [...(cache?.links ?? []), ...(cache?.embeds ?? []), ...(cache?.frontmatterLinks ?? [])]) if (cb(ref)) return true;
+	return false;
+}
+
+export const iterateRefs = (refs: any[], cb: (ref: any) => boolean | void): boolean => refs.some((r) => cb(r) === true);
+
+/** Resolve "#Heading" / "#^block" inside a file's cache. */
+export function resolveSubpath(cache: any, subpath: string): any {
+	if (subpath.startsWith('#^')) {
+		const block = cache?.blocks?.[subpath.slice(2)];
+		return block ? { type: 'block', block, start: block.position.start, end: block.position.end } : null;
+	}
+	const want = subpath.replace(/^#/, '').split('#').pop()!.trim().toLowerCase();
+	const hs = cache?.headings ?? [];
+	const i = hs.findIndex((h: any) => stripHeading(h.heading).toLowerCase() === stripHeading(want).toLowerCase());
+	if (i < 0) return null;
+	const next = hs.slice(i + 1).find((h: any) => h.level <= hs[i].level);
+	return { type: 'heading', current: hs[i], next: next ?? null, start: hs[i].position.start, end: next?.position.start ?? null };
+}
+
+export function sortSearchResults(results: { match: { score: number } }[]): void {
+	results.sort((a, b) => b.match.score - a.match.score);
+}
+
+export function displayTooltip(el: HTMLElement, text: string): void {
+	el.setAttr('aria-label', text);
+}
+
+export function setTooltip(el: HTMLElement, text: string): void {
+	el.setAttr('aria-label', text);
+}
+
+export async function loadPdfJs(): Promise<never> {
+	throw new Error('pdf.js is not bundled yet (phase 4).');
+}
+
+/** The module object handed to plugins. Values are what the API exports at runtime. */
+export const obsidianModule = {
+	apiVersion, Platform, requireApiVersion, moment,
+	// core
+	Events, Component, debounce, Keymap, Scope, Notice,
+	App: Object, // type-only in practice; plugins don't construct App
+	Vault, TAbstractFile, TFile, TFolder, normalizePath, MetadataCache, FileManager, DataAdapter: BaseAdapter,
+	FileSystemAdapter: undefined, // desktop-only; `instanceof FileSystemAdapter` checks must stay false
+	Plugin, PluginSettingTab, SettingTab,
+	// workspace & views
+	Workspace, WorkspaceItem, WorkspaceParent, WorkspaceSplit, WorkspaceRoot, WorkspaceSidedock, WorkspaceTabs, WorkspaceLeaf,
+	WorkspaceRibbon, View, ItemView, FileView, TextFileView, EditableFileView: TextFileView, MarkdownView,
+	Editor, editorInfoField, editorViewField, editorLivePreviewField,
+	// UI
+	Modal, SuggestModal, FuzzySuggestModal, Menu, MenuItem, Setting, ToggleComponent, TextComponent, TextAreaComponent,
+	DropdownComponent, SliderComponent, ColorComponent, ButtonComponent, ExtraButtonComponent,
+	PopoverSuggest, AbstractInputSuggest, EditorSuggest,
+	setIcon, getIcon, addIcon, removeIcon, setTooltip, displayTooltip,
+	// rendering
+	MarkdownRenderer, MarkdownRenderChild, MarkdownPreviewRenderer, renderMath, finishRenderMath, loadMathJax, loadMermaid, loadPrism, loadPdfJs,
+	// helpers
+	requestUrl, request, parseYaml, stringifyYaml, sanitizeHTMLToDom, htmlToMarkdown,
+	prepareFuzzySearch, prepareSimpleSearch, renderMatches, renderResults, sortSearchResults,
+	getAllTags, getLinkpath, parseLinktext, parseFrontMatterAliases, parseFrontMatterTags, parseFrontMatterEntry,
+	parseFrontMatterStringArray, getFrontMatterInfo, iterateCacheRefs, iterateRefs, resolveSubpath, stripHeading, stripHeadingForLink,
+	arrayBufferToBase64, base64ToArrayBuffer, arrayBufferToHex, hexToArrayBuffer,
+};
+
+/** Node/Electron built-ins: a value that throws a clear error when used, so desktop-guarded code still loads. */
+function unavailable(name: string): unknown {
+	const fail = () => {
+		throw new Error(`"${name}" is not available in the browser (obsidian-online). This plugin path is desktop-only.`);
+	};
+	return new Proxy(fail, { get: (_t, prop) => (prop === Symbol.toPrimitive || prop === 'then' ? undefined : fail), apply: fail, construct: fail });
+}
+
+/** Minimal POSIX `path`, enough for the many mobile-compatible plugins that import it. */
+const path = {
+	sep: '/',
+	join: (...parts: string[]) => normalizePath(parts.join('/')),
+	basename: (p: string, ext?: string) => {
+		const b = p.slice(p.lastIndexOf('/') + 1);
+		return ext && b.endsWith(ext) ? b.slice(0, -ext.length) : b;
+	},
+	dirname: (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '.'),
+	extname: (p: string) => {
+		const b = p.slice(p.lastIndexOf('/') + 1);
+		const i = b.lastIndexOf('.');
+		return i > 0 ? b.slice(i) : '';
+	},
+	normalize: (p: string) => normalizePath(p),
+	resolve: (...parts: string[]) => '/' + normalizePath(parts.join('/')),
+	relative: (from: string, to: string) => {
+		const a = normalizePath(from).split('/');
+		const b = normalizePath(to).split('/');
+		while (a.length && b.length && a[0] === b[0]) { a.shift(); b.shift(); }
+		return [...a.map(() => '..'), ...b].join('/');
+	},
+	isAbsolute: (p: string) => p.startsWith('/'),
+	posix: undefined as unknown,
+};
+path.posix = path;
+
+const modules: Record<string, unknown> = {
+	obsidian: obsidianModule,
+	moment,
+	'@codemirror/state': cmState,
+	'@codemirror/view': cmView,
+	'@codemirror/language': cmLanguage,
+	'@codemirror/commands': cmCommands,
+	'@codemirror/autocomplete': cmAutocomplete,
+	'@lezer/common': lezerCommon,
+	'@lezer/highlight': lezerHighlight,
+	path,
+};
+
+export function pluginRequire(id: string): unknown {
+	const name = id.replace(/^node:/, '');
+	if (name in modules) return modules[name];
+	// Externals we don't ship and Node/Electron built-ins: loadable, but unusable.
+	return unavailable(name);
+}
+
+(window as any).moment = moment;

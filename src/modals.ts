@@ -5,6 +5,7 @@ import { setIcon } from './icons';
 import { Keymap, eventKey, hotkeyLabel, isMac, type Command, type Hotkey, type Modifier } from './keymap';
 import { FuzzySuggestModal, Modal, Setting, SuggestModal, prepareFuzzySearch, renderResults, type FuzzyMatch, type SearchResult } from './ui';
 import { TFile } from './vault';
+import { Notice } from './workspace';
 
 // ---------------- Command palette ----------------
 
@@ -167,7 +168,7 @@ export class SettingsModal extends Modal {
 		const container = this.contentEl.createDiv('vertical-tabs-container');
 		this.navEl = container.createDiv('vertical-tab-header');
 		this.contentWrapEl = container.createDiv('vertical-tab-content-container');
-		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new AboutTab(app)];
+		this.settingTabs = [new EditorTab(app), new FilesTab(app), new AppearanceTab(app), new HotkeysTab(app), new CorePluginsTab(app), new CommunityPluginsTab(app), new AboutTab(app)];
 	}
 
 	addSettingTab(tab: SettingTab): void {
@@ -367,6 +368,90 @@ class CorePluginsTab extends SettingTab {
 		for (const { instance, enabled } of Object.values(this.app.internalPlugins.plugins)) {
 			new Setting(el).setName(instance.name).setDesc(instance.description)
 				.addToggle((t) => t.setValue(enabled).onChange((v) => this.app.internalPlugins.setEnabled(instance.id, v)));
+		}
+	}
+}
+
+/** Read plugin files picked by the user: a release .zip, or the loose manifest.json + main.js (+ styles.css). */
+export async function readPluginFiles(files: File[]): Promise<{ manifest: string; main: string; styles?: string }> {
+	const byName = new Map<string, string>();
+	for (const f of files) {
+		if (f.name.endsWith('.zip')) {
+			const { unzipSync } = await import('fflate');
+			const entries = unzipSync(new Uint8Array(await f.arrayBuffer()));
+			for (const [path, bytes] of Object.entries(entries)) byName.set(path.split('/').pop()!, new TextDecoder().decode(bytes));
+		} else {
+			byName.set(f.name, await f.text());
+		}
+	}
+	const manifest = byName.get('manifest.json');
+	const main = byName.get('main.js');
+	if (!manifest || !main) throw new Error('Need manifest.json and main.js (or a .zip containing them).');
+	return { manifest, main, styles: byName.get('styles.css') };
+}
+
+class CommunityPluginsTab extends SettingTab {
+	id = 'community-plugins';
+	name = 'Community plugins';
+
+	display(): void {
+		const el = this.containerEl;
+		el.empty();
+		const pm = this.app.plugins;
+		if (!pm.isEnabled()) {
+			new Setting(el).setName('Restricted mode is on').setDesc('Community plugins can run any code with full access to this vault and to anything this page can reach. Only turn them on if you trust the plugins you install.')
+				.addButton((b) => b.setButtonText('Turn on community plugins').setWarning().onClick(async () => {
+					pm.setCommunityPluginsEnabled(true);
+					await pm.initialize();
+					this.display();
+				}));
+		} else {
+			new Setting(el).setName('Restricted mode').setDesc('Off on this device. Turning it on unloads all community plugins.')
+				.addButton((b) => b.setButtonText('Turn on restricted mode').onClick(async () => {
+					for (const id of Object.keys(pm.plugins)) await pm.unloadPlugin(id);
+					pm.setCommunityPluginsEnabled(false);
+					this.display();
+				}));
+		}
+		new Setting(el).setName('Install plugin from files').setDesc('A release .zip, or manifest.json + main.js (+ styles.css) downloaded from the plugin’s GitHub releases.')
+			.addButton((b) => b.setButtonText('Choose files…').onClick(() => {
+				const input = createEl('input', { type: 'file', attr: { multiple: '', accept: '.zip,.json,.js,.css' } });
+				input.addEventListener('change', async () => {
+					try {
+						const m = await pm.installPlugin(await readPluginFiles([...(input.files ?? [])]));
+						if (pm.isEnabled()) await pm.enablePluginAndSave(m.id);
+					} catch (e) {
+						new Notice(`Install failed: ${(e as Error).message}`);
+					}
+					this.display();
+				});
+				input.click();
+			}))
+			.addExtraButton((b) => b.setIcon('refresh-cw').setTooltip('Reload plugin list').onClick(async () => {
+				await pm.loadManifests();
+				this.display();
+			}));
+
+		new Setting(el).setName('Installed plugins').setHeading();
+		const manifests = Object.values(pm.manifests).sort((a, b) => a.name.localeCompare(b.name));
+		if (!manifests.length) el.createDiv({ cls: 'setting-item-description', text: 'No community plugins installed.' });
+		for (const m of manifests) {
+			const loaded = !!pm.plugins[m.id];
+			const s = new Setting(el).setName(`${m.name} ${m.version}`).setDesc(`By ${m.author}. ${m.description}`);
+			const err = pm.errors[m.id] ?? (m.isDesktopOnly ? 'Desktop-only: needs Node.js/Electron.' : '');
+			if (err) s.descEl.createDiv({ cls: 'mod-warning setting-plugin-error', text: err });
+			if (loaded && this.app.setting.pluginTabs.some((t) => t.id === m.id)) {
+				s.addExtraButton((b) => b.setIcon('settings').setTooltip('Options').onClick(() => this.app.setting.openTabById(m.id)));
+			}
+			s.addExtraButton((b) => b.setIcon('trash-2').setTooltip('Uninstall').onClick(async () => {
+				await pm.uninstallPlugin(m.id);
+				this.display();
+			}));
+			s.addToggle((t) => t.setValue(pm.enabledPlugins.has(m.id)).setDisabled(!pm.isEnabled() || !!m.isDesktopOnly).onChange(async (v) => {
+				if (v) await pm.enablePluginAndSave(m.id);
+				else await pm.disablePluginAndSave(m.id);
+				this.app.setting.openTab(this);
+			}));
 		}
 	}
 }

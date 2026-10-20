@@ -29,6 +29,7 @@
     "markdown-it-mark": "^4.0.0",
     "mathjax": "^3.2.2",
     "mermaid": "^12.2.0",
+    "moment": "^2.31.0",
     "prismjs": "^1.30.0"
   },
   "devDependencies": {

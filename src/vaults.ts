@@ -9,6 +9,8 @@ export interface VaultEntry {
 	name: string;
 	kind: VaultKind;
 	handle?: FileSystemDirectoryHandle;
+	/** Files seen at last open/close; lets us notice storage the browser cleared behind our back. */
+	fileCount?: number;
 }
 
 /** Vault list lives in its own IndexedDB store (handles are structured-cloneable; localStorage can't hold them). */
@@ -44,6 +46,12 @@ export async function listVaults(caps: Caps): Promise<VaultEntry[]> {
 	} catch {
 		return [];
 	}
+}
+
+export async function rememberFileCount(v: VaultEntry, count: number): Promise<void> {
+	if (v.kind === 'mem' || v.fileCount === count) return;
+	v.fileCount = count;
+	await registry.put(v).catch(() => {});
 }
 
 export async function forgetVault(id: string): Promise<void> {
