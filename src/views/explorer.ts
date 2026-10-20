@@ -94,6 +94,7 @@ export class FileExplorerView extends ItemView {
 		self.createDiv({ cls: 'tree-item-inner nav-file-title-content', text: file.extension === 'md' ? file.basename : file.name });
 		if (file.extension !== 'md') self.createDiv({ cls: 'nav-file-tag', text: file.extension });
 		self.addEventListener('click', (e) => void this.app.workspace.getLeaf(e.ctrlKey || e.metaKey ? 'tab' : false).openFile(file));
+		self.addEventListener('dragstart', (e) => e.dataTransfer?.setData('text/plain', file.path));
 		self.addEventListener('auxclick', (e) => e.button === 1 && void this.app.workspace.getLeaf('tab').openFile(file));
 		self.addEventListener('contextmenu', (e) => this.onContextMenu(e, file));
 	}
