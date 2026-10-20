@@ -6,6 +6,7 @@ import type { Command } from './keymap';
 import { MarkdownPreviewRenderer, type CodeBlockProcessor, type MarkdownPostProcessor } from './render';
 import { SettingTab } from './modals';
 import { trackMissing } from './api';
+import { basesViewRegistry } from './bases/base';
 import { Notice, type ViewCreator } from './workspace';
 
 export interface PluginManifest {
@@ -129,9 +130,12 @@ export abstract class Plugin extends Component {
 		this.register(() => this.app.protocolHandlers.delete(action));
 	}
 
-	/** Not supported on web yet; returns false so plugins can fall back. */
-	registerBasesView(_viewId: string, _registration: unknown): boolean {
-		return false;
+	/** Adds a Bases layout (e.g. the official Maps plugin's map view). */
+	registerBasesView(viewId: string, registration: { name: string; icon: string; factory: (controller: any, containerEl: HTMLElement) => any; options?: (config: any) => unknown[] }): boolean {
+		if (basesViewRegistry.has(viewId)) return false;
+		basesViewRegistry.set(viewId, registration);
+		this.register(() => basesViewRegistry.delete(viewId));
+		return true;
 	}
 
 	registerCliHandler(): void {}

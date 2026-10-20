@@ -13,6 +13,11 @@ import { dump as dumpYaml, load as loadYaml, CORE_SCHEMA } from 'js-yaml';
 import { icons as lucideIcons } from 'lucide';
 import moment from 'moment';
 import { BaseAdapter } from './adapters';
+import { BasesView } from './bases/base';
+import {
+	BooleanValue, DateValue, DurationValue, FileValue, HTMLValue, IconValue, ImageValue, LinkValue, ListValue, NotNullValue, NullValue,
+	NumberValue, ObjectValue, PrimitiveValue, RegExpValue, RelativeDateValue, StringValue, TagValue, UrlValue, Value,
+} from './bases/values';
 import { Editor } from './editor';
 import { Component, Events, debounce } from './events';
 import { FileManager } from './filemanager';
@@ -278,6 +283,9 @@ export const obsidianModule = {
 	Vault, TAbstractFile, TFile, TFolder, normalizePath, MetadataCache, FileManager, DataAdapter: BaseAdapter,
 	FileSystemAdapter, CapacitorAdapter, TExternalFile, Tasks, SecretStorage,
 	Plugin, PluginSettingTab, SettingTab, SettingPage, SettingGroup,
+	// Bases
+	BasesView, Value, NotNullValue, NullValue, PrimitiveValue, StringValue, NumberValue, BooleanValue, DateValue, RelativeDateValue,
+	DurationValue, ListValue, ObjectValue, LinkValue, FileValue, TagValue, UrlValue, RegExpValue, HTMLValue, ImageValue, IconValue,
 	// workspace & views
 	Workspace, WorkspaceItem, WorkspaceParent, WorkspaceSplit, WorkspaceRoot, WorkspaceSidedock, WorkspaceTabs, WorkspaceLeaf,
 	WorkspaceRibbon, WorkspaceContainer, WorkspaceWindow, WorkspaceFloating, WorkspaceMobileDrawer, View, ItemView, FileView, TextFileView, EditableFileView: TextFileView, MarkdownView,

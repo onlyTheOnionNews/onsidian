@@ -21,6 +21,7 @@ import { DailyNotesPlugin, NoteComposerPlugin, RandomNotePlugin, SlidesPlugin, T
 import { FileRecoveryPlugin } from './views/recovery';
 import { GraphPlugin } from './views/graph';
 import { CanvasPlugin } from './views/canvas';
+import { BasesPlugin } from './bases/base';
 import { Vault } from './vault';
 import { ViewRegistry, Workspace, type WorkspaceLeaf } from './workspace';
 
@@ -70,7 +71,7 @@ export class App {
 		this.embedRegistry.registerExtension('md', Object.assign(markdownEmbedCreator, { builtin: true }));
 		for (const P of [
 			GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin,
-			TemplatesPlugin, DailyNotesPlugin, UniqueNotePlugin, RandomNotePlugin, NoteComposerPlugin, SlidesPlugin, FileRecoveryPlugin, GraphPlugin, CanvasPlugin,
+			TemplatesPlugin, DailyNotesPlugin, UniqueNotePlugin, RandomNotePlugin, NoteComposerPlugin, SlidesPlugin, FileRecoveryPlugin, GraphPlugin, CanvasPlugin, BasesPlugin,
 		]) {
 			this.internalPlugins.add(new P(this));
 		}
