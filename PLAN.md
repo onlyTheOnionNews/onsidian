@@ -417,7 +417,11 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 
 ## 10. Phased roadmap
 
-**Status (2026-10-20):** phases 1 and 2 are done. Known gaps carried forward, each marked `ponytail:` in code:
+**Status (2026-10-20):** phases 1–3 are done.
+- **Plugins:** 36 of the top 50 mobile-compatible plugins load cleanly (`docs/plugin-compat.md`). API coverage is 128/159 runtime exports (`npm run api-coverage`).
+- **Installs:** only 1 of the top 40 plugins is installable via jsDelivr, so one-click installs need a network bridge (§6.3) or manual install. See open question 6.
+
+Known gaps carried forward, each marked `ponytail:` in code:
 - Search is a main-thread linear scan; the metadata index isn't persisted between sessions.
 - `.obsidian/types.json` (explicit property types) isn't read or written.
 - Root splits can't be resized; there are no stacked tabs, pop-out windows, or drag-and-drop in the explorer.
@@ -446,3 +450,4 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 3. **Network bridges:** OK to depend on the Hoppscotch extension's internal hook (§6.3), or build our own extension from the start?
 4. **Plugin trust default:** ship with community plugins available (Restricted mode opt-out) or curated allow-list only?
 5. **Licensing/name:** the product name must avoid implying it is an official Obsidian product.
+6. **Plugin installs without a bridge:** only 1 of the top 40 plugins publishes `main.js` where jsDelivr can serve it. Option: a scheduled GitHub Actions job that mirrors release files of an allow-listed set of plugins into the static site (static hosting, no server), so installs work with no bridge. This also makes the app a redistributor of those plugins, so check their licenses first.
