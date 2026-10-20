@@ -19,6 +19,7 @@ import { BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, PagePreviewPlugin, T
 import { GlobalSearchPlugin } from './views/search';
 import { DailyNotesPlugin, NoteComposerPlugin, RandomNotePlugin, SlidesPlugin, TemplatesPlugin, UniqueNotePlugin } from './views/notes';
 import { FileRecoveryPlugin } from './views/recovery';
+import { GraphPlugin } from './views/graph';
 import { Vault } from './vault';
 import { ViewRegistry, Workspace, type WorkspaceLeaf } from './workspace';
 
@@ -68,7 +69,7 @@ export class App {
 		this.embedRegistry.registerExtension('md', Object.assign(markdownEmbedCreator, { builtin: true }));
 		for (const P of [
 			GlobalSearchPlugin, BookmarksPlugin, BacklinkPlugin, OutgoingLinkPlugin, OutlinePlugin, TagPanePlugin, PagePreviewPlugin, WordCountPlugin,
-			TemplatesPlugin, DailyNotesPlugin, UniqueNotePlugin, RandomNotePlugin, NoteComposerPlugin, SlidesPlugin, FileRecoveryPlugin,
+			TemplatesPlugin, DailyNotesPlugin, UniqueNotePlugin, RandomNotePlugin, NoteComposerPlugin, SlidesPlugin, FileRecoveryPlugin, GraphPlugin,
 		]) {
 			this.internalPlugins.add(new P(this));
 		}
