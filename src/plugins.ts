@@ -175,7 +175,7 @@ export abstract class PluginSettingTab extends SettingTab {
 
 type Factory = (require: (id: string) => unknown, module: { exports: any }, exports: any, global: Window) => void;
 const pending = new Map<string, (f: Factory) => void>();
-(window as any).__obsidianOnlineDefine = (key: string, factory: Factory) => pending.get(key)?.(factory);
+(window as any).__onsidianDefine = (key: string, factory: Factory) => pending.get(key)?.(factory);
 
 /**
  * Evaluate a CommonJS bundle through a blob: <script> (so a CSP can allow `blob:` without 'unsafe-eval').
@@ -183,7 +183,7 @@ const pending = new Map<string, (f: Factory) => void>();
  */
 export async function evaluateCommonJs(code: string, name: string, requireFn: (id: string) => unknown): Promise<any> {
 	const key = `${name}:${Math.random().toString(36).slice(2)}`;
-	const src = `window.__obsidianOnlineDefine(${JSON.stringify(key)}, function (require, module, exports, global) {\n${code}\n});\n//# sourceURL=plugin:${encodeURIComponent(name)}/main.js`;
+	const src = `window.__onsidianDefine(${JSON.stringify(key)}, function (require, module, exports, global) {\n${code}\n});\n//# sourceURL=plugin:${encodeURIComponent(name)}/main.js`;
 	const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
 	const script = document.createElement('script');
 	const onError = (e: ErrorEvent) => e.filename === url && reject?.(e.error ?? new Error(e.message));
@@ -212,7 +212,7 @@ export async function evaluateCommonJs(code: string, name: string, requireFn: (i
 
 /** In diagnose mode, plugins get an `app` whose managers report reads of members we don't implement. */
 function diagnosticApp(app: App): App {
-	if (!(window as any).__obsidianOnlineDiagnose) return app;
+	if (!(window as any).__onsidianDiagnose) return app;
 	const wrapped = new Map<string, unknown>();
 	for (const k of ['workspace', 'vault', 'metadataCache', 'fileManager', 'plugins', 'internalPlugins', 'commands', 'setting', 'viewRegistry', 'keymap']) {
 		wrapped.set(k, trackMissing((app as any)[k], `app.${k}`));

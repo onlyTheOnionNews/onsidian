@@ -197,8 +197,8 @@ Development-only pages, served by `npm run dev`:
 - `/compat.html`: loads each downloaded community plugin and records errors (`?only=<plugin-id>` for one).
 - `/bench.html?n=10000`: generates a synthetic vault of *n* notes and times startup, search, graph and reading view.
 
-Diagnostics: set `window.__obsidianOnlineDiagnose = true` before plugins load to log every `app.*` / `obsidian.*`
-member a plugin reads that isn't implemented. The results are in `window.__obsidianOnlineMissing`.
+Diagnostics: set `window.__onsidianDiagnose = true` before plugins load to log every `app.*` / `obsidian.*`
+member a plugin reads that isn't implemented. The results are in `window.__onsidianMissing`.
 
 ## Project layout
 

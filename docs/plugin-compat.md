@@ -27,7 +27,7 @@ npm run dev                  # then open http://localhost:5173/compat.html  (or 
 
 The page records each plugin's load error, runtime errors (attributed by `plugin:<id>/` stack frames), registered
 commands and views, and leftovers after unload. It also runs in diagnose mode: reads of `obsidian.*` / `app.*`
-members we don't implement are collected in `window.__obsidianOnlineMissing`.
+members we don't implement are collected in `window.__onsidianMissing`.
 
 ## Results
 

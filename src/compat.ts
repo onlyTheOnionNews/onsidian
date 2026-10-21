@@ -33,7 +33,7 @@ const SEED: Record<string, string> = {
 };
 
 async function main(): Promise<void> {
-	(window as any).__obsidianOnlineDiagnose = true;
+	(window as any).__onsidianDiagnose = true;
 	applyAppearance(null);
 	const caps = await probeCaps();
 	const only = new URLSearchParams(location.search).get('only');
@@ -71,7 +71,7 @@ async function main(): Promise<void> {
 		current = r;
 		results.push(r);
 		const get = (f: string) => fetch(`/compat-plugins/${e.id}/${f}${f.endsWith('.css') ? '?direct' : ''}`).then((x) => x.text());
-		const missingBefore = new Map((window as any).__obsidianOnlineMissing ?? []);
+		const missingBefore = new Map((window as any).__onsidianMissing ?? []);
 		const viewsBefore = new Set(Object.keys(app.viewRegistry.viewByType));
 		const t0 = performance.now();
 		try {
@@ -102,7 +102,7 @@ async function main(): Promise<void> {
 		];
 		if (r.status === 'ok' && r.runtimeErrors.length) r.status = 'runtime-errors';
 		// Missing API members this plugin read (first time seen during its run).
-		r.missingApi = [...((window as any).__obsidianOnlineMissing ?? new Map()).keys()].filter((k: string) => !missingBefore.has(k));
+		r.missingApi = [...((window as any).__onsidianMissing ?? new Map()).keys()].filter((k: string) => !missingBefore.has(k));
 		current = null;
 		render(panel, results, entries.length);
 	}

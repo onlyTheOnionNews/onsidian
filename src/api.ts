@@ -427,12 +427,12 @@ const modules: Record<string, unknown> = {
 };
 
 /**
- * Diagnostics (compat page sets window.__obsidianOnlineDiagnose): record API names plugins read that we don't provide,
- * in window.__obsidianOnlineMissing ("obsidian.X", "app.X", "app.workspace.X", ...).
+ * Diagnostics (compat page sets window.__onsidianDiagnose): record API names plugins read that we don't provide,
+ * in window.__onsidianMissing ("obsidian.X", "app.X", "app.workspace.X", ...).
  */
 export function trackMissing<T extends object>(target: T, label: string): T {
-	if (!(window as any).__obsidianOnlineDiagnose) return target;
-	const missing: Map<string, number> = ((window as any).__obsidianOnlineMissing ??= new Map());
+	if (!(window as any).__onsidianDiagnose) return target;
+	const missing: Map<string, number> = ((window as any).__onsidianMissing ??= new Map());
 	return new Proxy(target, {
 		get(t, prop, recv) {
 			if (typeof prop === 'string' && !(prop in t) && !['then', 'toJSON', '__esModule', 'default'].includes(prop)) {
