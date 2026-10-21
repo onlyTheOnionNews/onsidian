@@ -12,7 +12,8 @@
     "css-coverage": "node scripts/css-vars-coverage.mjs",
     "api-coverage": "node scripts/api-coverage.mjs",
     "compat:fetch": "node scripts/fetch-compat-plugins.mjs",
-    "vendor:relay": "node scripts/vendor-relay.mjs"
+    "vendor:relay": "node scripts/vendor-relay.mjs",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.4",
@@ -43,6 +44,7 @@
     "prismjs": "^1.30.0"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/d3-force": "^3.0.10",
     "@types/js-yaml": "^4.0.9",
     "@types/markdown-it": "^14.2.0",

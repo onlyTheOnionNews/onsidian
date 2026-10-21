@@ -745,6 +745,8 @@ input[type='text']:focus { outline: 2px solid hsla(var(--interactive-accent-hsl)
 .vault-picker { height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--size-4-4); background: var(--background-secondary); overflow: auto; }
 .vault-picker-card { width: 100%; max-width: 440px; background: var(--background-primary); border: var(--border-width) solid var(--background-modifier-border); border-radius: var(--radius-l); padding: var(--size-4-6); box-shadow: var(--shadow-s); display: flex; flex-direction: column; gap: var(--size-4-2); }
 .vault-picker-card h1 { margin: 0 0 var(--size-4-2); font-size: var(--font-ui-large); }
+.vault-picker-logo { width: 72px; height: 72px; align-self: center; }
+.vault-picker-card:has(.vault-picker-logo) h1 { text-align: center; }
 .vault-picker-card h2 { margin: var(--size-4-4) 0 0; font-size: var(--font-ui-small); color: var(--text-muted); font-weight: var(--font-semibold); text-transform: uppercase; letter-spacing: 0.04em; }
 .vault-picker-error { color: var(--text-error); font-size: var(--font-ui-small); }
 .vault-list { display: flex; flex-direction: column; gap: var(--size-4-1); }

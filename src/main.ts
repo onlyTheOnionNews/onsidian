@@ -108,6 +108,7 @@ async function showPicker(caps: Caps, error?: string, busy?: VaultEntry): Promis
 	const root = createDiv('vault-picker');
 	document.body.replaceChildren(root);
 	const card = root.createDiv('vault-picker-card');
+	card.createEl('img', { cls: 'vault-picker-logo', attr: { src: 'logo.svg', alt: '' } });
 	card.createEl('h1', { text: 'obsidian-online' });
 	if (error) card.createDiv({ cls: 'vault-picker-error', text: error });
 
