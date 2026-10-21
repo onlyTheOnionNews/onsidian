@@ -91,3 +91,13 @@ test('parseLinktext', () => {
 	expect(parseLinktext('foo#bar')).toEqual({ path: 'foo', subpath: '#bar' });
 	expect(parseLinktext('foo')).toEqual({ path: 'foo', subpath: '' });
 });
+
+test('PARSER_VERSION is bumped when parse.ts changes', async () => {
+	// Persisted indexes are keyed by PARSER_VERSION. If this fails: bump PARSER_VERSION in parse.ts if parsing output
+	// changed (otherwise stale indexes are served), then record the new hash and version here.
+	const raw = (await import('../src/parse.ts?raw')).default as string;
+	const src = raw.replace(/\r\n/g, '\n').replace(/^export const PARSER_VERSION.*$/m, '');
+	const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(src)))].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+	const { PARSER_VERSION } = await import('../src/parse');
+	expect([hash, PARSER_VERSION]).toEqual(['0659407e4763f01f', 1]);
+});

@@ -1,5 +1,5 @@
 // Zip export/import (PLAN §5.1): the way data gets in and out of browser-storage vaults.
-import { unzip, zip, type Zippable } from 'fflate';
+import type { Zippable } from 'fflate';
 import type { App } from './app';
 import { Notice } from './workspace';
 
@@ -16,6 +16,7 @@ export async function exportVaultZip(app: App): Promise<void> {
 	try {
 		const files: Zippable = {};
 		for (const path of await allPaths(app)) files[path] = new Uint8Array(await app.vault.adapter.readBinary(path));
+		const { zip } = await import('fflate');
 		const data = await new Promise<Uint8Array>((res, rej) => zip(files, { level: 6 }, (err, out) => (err ? rej(err) : res(out))));
 		const url = URL.createObjectURL(new Blob([data as BlobPart], { type: 'application/zip' }));
 		const a = createEl('a', { href: url, attr: { download: `${app.vault.getName()}-${new Date().toISOString().slice(0, 10)}.zip` } });
@@ -37,6 +38,7 @@ export async function importZip(app: App): Promise<void> {
 	if (!file) return;
 	const notice = new Notice(`Importing ${file.name}…`, 0);
 	try {
+		const { unzip } = await import('fflate');
 		const entries = await new Promise<Record<string, Uint8Array>>((res, rej) =>
 			file.arrayBuffer().then((buf) => unzip(new Uint8Array(buf), (err, out) => (err ? rej(err) : res(out)))));
 		const paths = Object.keys(entries).filter((p) => !p.endsWith('/') && !p.startsWith('__MACOSX/'));

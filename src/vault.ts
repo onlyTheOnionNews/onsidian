@@ -140,18 +140,20 @@ export class Vault extends Events {
 
 	/** Build the tree from storage. Triggers 'create' per item, as Obsidian does on first load. */
 	async load(): Promise<void> {
-		const walk = async (dir: string) => {
-			const l = await this.adapter.list(dir);
+		// Folders are scanned in parallel; each listing carries its files' stats.
+		const walk = async (dir: string): Promise<void> => {
+			const l = await this.adapter.listWithStats(dir);
+			const sub: Promise<void>[] = [];
 			for (const p of l.folders) {
 				if (isHidden(p)) continue;
 				this.attach(new TFolder(), p);
-				await walk(p);
+				sub.push(walk(p));
 			}
-			for (const p of l.files) {
+			for (const [p, st] of l.files) {
 				if (isHidden(p)) continue;
-				const f = this.attach(new TFile(), p) as TFile;
-				await this.refreshStat(f);
+				(this.attach(new TFile(), p) as TFile).stat = { ctime: st.ctime, mtime: st.mtime, size: st.size };
 			}
+			await Promise.all(sub);
 		};
 		await walk('');
 		for (const f of this.files.values()) if (f !== this.root) this.trigger('create', f);
@@ -163,31 +165,34 @@ export class Vault extends Events {
 	 */
 	async rescan(): Promise<void> {
 		const seen = new Set<string>(['/']);
-		const walk = async (dir: string) => {
-			const l = await this.adapter.list(dir);
+		const walk = async (dir: string): Promise<void> => {
+			const l = await this.adapter.listWithStats(dir);
+			const sub: Promise<void>[] = [];
 			for (const p of l.folders) {
 				if (isHidden(p)) continue;
 				seen.add(p);
 				if (!this.files.has(p)) this.trigger('create', this.attach(new TFolder(), p));
-				await walk(p);
+				sub.push(walk(p));
 			}
-			for (const p of l.files) {
+			for (const [p, st] of l.files) {
 				if (isHidden(p)) continue;
 				seen.add(p);
 				const existing = this.files.get(p);
+				const stat = { ctime: st.ctime, mtime: st.mtime, size: st.size };
 				if (!existing) {
 					const f = this.attach(new TFile(), p) as TFile;
-					await this.refreshStat(f);
+					f.stat = stat;
 					this.trigger('create', f);
 				} else if (existing instanceof TFile) {
 					const before = existing.stat.mtime;
-					await this.refreshStat(existing);
+					existing.stat = stat;
 					if (existing.stat.mtime !== before) {
-						this.contentCache.delete(p);
+						this.setCached(p, undefined);
 						this.trigger('modify', existing);
 					}
 				}
 			}
+			await Promise.all(sub);
 		};
 		await walk('');
 		for (const [p, f] of [...this.files]) if (!seen.has(p) && this.files.has(p)) this.forget(f);
@@ -197,6 +202,12 @@ export class Vault extends Events {
 
 	getAbstractFileByPath(path: string): TAbstractFile | null {
 		return this.files.get(normalizePath(path)) ?? null;
+	}
+
+	/** Lookup by an already-normalized path, for hot loops (link resolution). */
+	fileAt(path: string): TFile | null {
+		const f = this.files.get(path);
+		return f instanceof TFile ? f : null;
 	}
 
 	getFileByPath(path: string): TFile | null {
@@ -237,13 +248,48 @@ export class Vault extends Events {
 	// ---------- read ----------
 
 	async read(file: TFile): Promise<string> {
+		const v = this.cacheVersion.get(file.path);
 		const data = await this.adapter.read(file.path);
-		this.contentCache.set(file.path, data);
+		// Cache only if nothing wrote or invalidated this note while we were reading (that would be newer).
+		if (this.cacheVersion.get(file.path) === v) this.contentCache.set(file.path, data);
 		return data;
 	}
 
+	/** Bumped by every write/invalidation of a note's cached text. */
+	private cacheVersion = new Map<string, number>();
+
+	private setCached(path: string, data: string | undefined): void {
+		this.cacheVersion.set(path, (this.cacheVersion.get(path) ?? 0) + 1);
+		this.reading.delete(path);
+		if (data === undefined) this.contentCache.delete(path);
+		else this.contentCache.set(path, data);
+	}
+
+	/** In-flight reads, so search and the background warm-up don't read the same note twice. */
+	private reading = new Map<string, Promise<string>>();
+
+	/**
+	 * Read every note into the content cache in the background, after a warm start skipped reading them: search scans
+	 * note text, and reading 10k notes on demand takes ~3 s. ponytail: holds all note text in memory (~2× file size);
+	 * cap it (LRU) if very large vaults run short of memory.
+	 */
+	async warmContentCache(): Promise<void> {
+		const md = this.getMarkdownFiles().filter((f) => !this.contentCache.has(f.path));
+		for (let i = 0; i < md.length; i += 64) {
+			await Promise.all(md.slice(i, i + 64).map((f) => this.cachedRead(f).catch(() => '')));
+			await new Promise((r) => setTimeout(r));
+		}
+	}
+
 	async cachedRead(file: TFile): Promise<string> {
-		return this.contentCache.get(file.path) ?? this.read(file);
+		const cached = this.contentCache.get(file.path);
+		if (cached !== undefined) return cached;
+		let p = this.reading.get(file.path);
+		if (!p) {
+			p = this.read(file).finally(() => this.reading.delete(file.path));
+			this.reading.set(file.path, p);
+		}
+		return p;
 	}
 
 	readBinary(file: TFile): Promise<ArrayBuffer> {
@@ -286,7 +332,7 @@ export class Vault extends Events {
 	async create(path: string, data: string, options?: DataWriteOptions): Promise<TFile> {
 		path = this.checkNew(path);
 		await this.adapter.write(path, data, options);
-		this.contentCache.set(path, data);
+		this.setCached(path, data);
 		return this.created(path);
 	}
 
@@ -307,13 +353,13 @@ export class Vault extends Events {
 
 	async modify(file: TFile, data: string, options?: DataWriteOptions): Promise<void> {
 		await this.adapter.write(file.path, data, options);
-		this.contentCache.set(file.path, data);
+		this.setCached(file.path, data);
 		await this.modified(file);
 	}
 
 	async modifyBinary(file: TFile, data: ArrayBuffer, options?: DataWriteOptions): Promise<void> {
 		await this.adapter.writeBinary(file.path, data, options);
-		this.contentCache.delete(file.path);
+		this.setCached(file.path, undefined);
 		await this.modified(file);
 	}
 
@@ -323,7 +369,7 @@ export class Vault extends Events {
 
 	async appendBinary(file: TFile, data: ArrayBuffer, options?: DataWriteOptions): Promise<void> {
 		await this.adapter.appendBinary(file.path, data, options);
-		this.contentCache.delete(file.path);
+		this.setCached(file.path, undefined);
 		await this.modified(file);
 	}
 
@@ -354,11 +400,11 @@ export class Vault extends Events {
 			moved.push([f, f.path]);
 			this.files.delete(f.path);
 			const cached = this.contentCache.get(f.path);
-			this.contentCache.delete(f.path);
+			this.setCached(f.path, undefined);
 			this.revokeResource(f.path);
 			setPath(f, path);
 			this.files.set(path, f);
-			if (cached !== undefined) this.contentCache.set(path, cached);
+			if (cached !== undefined) this.setCached(path, cached);
 			if (f instanceof TFolder) for (const c of f.children) walk(c, join(path, c.name));
 		};
 		this.detachFromParent(file);
@@ -437,7 +483,7 @@ export class Vault extends Events {
 		if (f instanceof TFolder) for (const c of [...f.children]) this.forget(c);
 		this.detachFromParent(f);
 		this.files.delete(f.path);
-		this.contentCache.delete(f.path);
+		this.setCached(f.path, undefined);
 		this.revokeResource(f.path);
 		this.trigger('delete', f);
 	}

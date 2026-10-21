@@ -1,9 +1,10 @@
 // MetadataCache (obsidian.d.ts): per-file CachedMetadata + link resolution.
-// Parsing runs in a worker when available, else in-process with periodic yields (PLAN §2 worker boundary).
-// ponytail: no persistent index — every load re-parses all notes. Persist to IDB keyed by mtime+size when cold start gets slow.
+// Parsing runs in a small worker pool when available, else in-process with periodic yields (PLAN §2 worker boundary).
+// The index persists in IndexedDB (indexstore.ts): reopening a vault parses only notes whose mtime/size changed.
 import type { CachedMetadata } from 'obsidian';
 import { dirname, join } from './adapters';
 import { Events } from './events';
+import { IndexStore } from './indexstore';
 import { getAllTags, getLinkpath, parseMetadata } from './parse';
 import { TAbstractFile, TFile, Vault, normalizePath } from './vault';
 
@@ -20,27 +21,32 @@ function inProcess(): Parse {
 
 function inWorker(): Parse {
 	const fallback = inProcess();
-	let worker: Worker | null = new Worker(new URL('./indexer.worker.ts', import.meta.url), { type: 'module' });
+	// ponytail: fixed pool of up to 4, round-robin. Parsing is ~0.25 ms/note, so more workers stop paying off.
+	const size = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+	let workers: Worker[] = Array.from({ length: size }, () => new Worker(new URL('./indexer.worker.ts', import.meta.url), { type: 'module' }));
 	const pending = new Map<number, { text: string; resolve: (c: CachedMetadata) => void }>();
 	let nextId = 0;
-	worker.onmessage = (e: MessageEvent<{ id: number; cache: CachedMetadata }>) => {
-		pending.get(e.data.id)?.resolve(e.data.cache);
-		pending.delete(e.data.id);
-	};
-	worker.onerror = (e) => {
-		// Worker blocked (CSP, broken bundle, …): finish everything in-process from now on.
-		console.warn('Indexer worker failed; falling back to main thread.', e);
-		worker?.terminate();
-		worker = null;
-		for (const [, p] of pending) fallback(p.text).then(p.resolve);
-		pending.clear();
-	};
+	for (const w of workers) {
+		w.onmessage = (e: MessageEvent<{ id: number; cache: CachedMetadata }>) => {
+			pending.get(e.data.id)?.resolve(e.data.cache);
+			pending.delete(e.data.id);
+		};
+		w.onerror = (e) => {
+			if (!workers.length) return;
+			// Worker blocked (CSP, broken bundle, …): finish everything in-process from now on.
+			console.warn('Indexer worker failed; falling back to main thread.', e);
+			for (const x of workers) x.terminate();
+			workers = [];
+			for (const [, p] of pending) fallback(p.text).then(p.resolve);
+			pending.clear();
+		};
+	}
 	return (text) => {
-		if (!worker) return fallback(text);
+		if (!workers.length) return fallback(text);
 		return new Promise((resolve) => {
 			const id = nextId++;
 			pending.set(id, { text, resolve });
-			worker!.postMessage({ id, text });
+			workers[id % workers.length].postMessage({ id, text });
 		});
 	};
 }
@@ -51,18 +57,36 @@ export class MetadataCache extends Events {
 	private caches = new Map<string, CachedMetadata>();
 	/** lowercase file name ("note.md") → files with that name, for link resolution. */
 	private byName = new Map<string, TFile[]>();
+	/** Link name key → notes linking to that name, so create/delete/rename re-resolve only those notes. */
+	private linkers = new Map<string, Set<string>>();
+	private linkKeys = new Map<string, string[]>();
 	private parse: Parse;
 	private ready = false;
+	private store: IndexStore | null;
 
-	constructor(private vault: Vault, useWorker: boolean) {
+	constructor(private vault: Vault, useWorker: boolean, vaultId?: string) {
 		super();
 		this.parse = useWorker ? inWorker() : inProcess();
+		this.store = vaultId && typeof indexedDB !== 'undefined' ? new IndexStore(vaultId) : null;
 	}
 
-	/** Index every markdown file, then start following vault events. */
+	/** Index every markdown file (reusing the persisted index for unchanged notes), then follow vault events. */
 	async initialize(): Promise<void> {
 		for (const f of this.vault.getFiles()) this.addName(f);
-		await Promise.all(this.vault.getMarkdownFiles().map((f) => this.index(f, false)));
+		const stored = (await this.store?.load()) ?? new Map();
+		const stale: TFile[] = [];
+		const md = this.vault.getMarkdownFiles();
+		for (const f of md) {
+			const e = stored.get(f.path);
+			if (e && e.mtime === f.stat.mtime && e.size === f.stat.size) this.caches.set(f.path, e.cache);
+			else stale.push(f);
+		}
+		await Promise.all(stale.map((f) => this.index(f, false)));
+		const live = new Set(md.map((f) => f.path));
+		void this.store?.update(
+			stale.filter((f) => this.caches.has(f.path)).map((f) => this.entry(f)),
+			[...stored.keys()].filter((p) => !live.has(p)),
+		);
 		this.resolveAll();
 		this.ready = true;
 		this.trigger('resolved');
@@ -70,9 +94,9 @@ export class MetadataCache extends Events {
 		this.vault.on('create', (f: TAbstractFile) => {
 			if (!(f instanceof TFile)) return;
 			this.addName(f);
-			// A new name can resolve links in other notes, so creation re-resolves everything.
+			// A new name can resolve links in other notes: re-resolve the notes that link to that name.
 			if (f.extension === 'md') void this.index(f, true, true);
-			else this.resolveAll();
+			else this.resolveLinkersOf(f.path);
 		});
 		this.vault.on('modify', (f: TAbstractFile) => {
 			if (f instanceof TFile && f.extension === 'md') void this.index(f, true);
@@ -82,7 +106,9 @@ export class MetadataCache extends Events {
 			this.removeName(f);
 			const prev = this.caches.get(f.path) ?? null;
 			this.caches.delete(f.path);
-			this.resolveAll();
+			void this.store?.update([], [f.path]);
+			this.unresolveFile(f.path);
+			this.resolveLinkersOf(f.path);
 			this.trigger('deleted', f, prev);
 		});
 		this.vault.on('rename', (f: TAbstractFile, oldPath: string) => {
@@ -92,7 +118,10 @@ export class MetadataCache extends Events {
 			const c = this.caches.get(oldPath);
 			this.caches.delete(oldPath);
 			if (c) this.caches.set(f.path, c);
-			this.resolveAll();
+			void this.store?.update(c ? [this.entry(f)] : [], [oldPath]);
+			this.unresolveFile(oldPath);
+			if (c) this.resolveFile(f.path, c); // relative links resolve from the new folder
+			this.resolveLinkersOf(oldPath, f.path);
 		});
 	}
 
@@ -128,11 +157,12 @@ export class MetadataCache extends Events {
 	 * shortest path. ponytail: approximates Obsidian's rules; revisit with fixtures from real ambiguous vaults.
 	 */
 	getFirstLinkpathDest(linkpath: string, sourcePath: string): TFile | null {
-		linkpath = getLinkpath(linkpath).replace(/^\//, '');
-		if (!linkpath) return this.vault.getFileByPath(sourcePath);
+		linkpath = getLinkpath(linkpath);
+		if (!linkpath.replace(/^\//, '')) return this.vault.getFileByPath(sourcePath);
+		linkpath = normalizePath(linkpath); // once; the candidates below are then already normalized
 		const srcDir = dirname(sourcePath);
 		for (const p of [linkpath, linkpath + '.md', join(srcDir, linkpath), join(srcDir, linkpath + '.md')]) {
-			const f = this.vault.getFileByPath(p);
+			const f = this.vault.fileAt(p);
 			if (f) return f;
 		}
 		const lower = linkpath.toLowerCase();
@@ -160,15 +190,35 @@ export class MetadataCache extends Events {
 		if (this.vault.getFileByPath(file.path) !== file) return; // deleted/renamed while parsing
 		this.caches.set(file.path, cache);
 		if (!notify) return;
-		if (structural) this.resolveAll();
-		else this.resolveFile(file.path, cache);
+		void this.store?.update([this.entry(file)]);
+		this.resolveFile(file.path, cache);
+		if (structural) this.resolveLinkersOf(file.path);
 		this.trigger('changed', file, data, cache);
 		this.trigger('resolve', file);
 		if (this.ready) this.trigger('resolved');
 	}
 
-	// ponytail: recomputes every file's links on structural changes — O(total links). Fine to ~10k notes;
-	// track reverse "who links to name X" if create/delete/rename gets slow.
+	private entry(f: TFile) {
+		return { path: f.path, mtime: f.stat.mtime, size: f.stat.size, cache: this.caches.get(f.path)! };
+	}
+
+	/** Re-resolve the notes whose links name any of these files (their targets may have changed). */
+	private resolveLinkersOf(...paths: string[]): void {
+		const sources = new Set<string>();
+		for (const p of paths) for (const s of this.linkers.get(linkKey(p)) ?? []) sources.add(s);
+		for (const s of sources) {
+			const c = this.caches.get(s);
+			if (c) this.resolveFile(s, c);
+		}
+	}
+
+	private unresolveFile(path: string): void {
+		delete this.resolvedLinks[path];
+		delete this.unresolvedLinks[path];
+		for (const k of this.linkKeys.get(path) ?? []) this.linkers.get(k)?.delete(path);
+		this.linkKeys.delete(path);
+	}
+
 	private resolveAll(): void {
 		this.resolvedLinks = {};
 		this.unresolvedLinks = {};
@@ -178,15 +228,24 @@ export class MetadataCache extends Events {
 	private resolveFile(path: string, cache: CachedMetadata): void {
 		const resolved: Record<string, number> = {};
 		const unresolved: Record<string, number> = {};
+		this.unresolveFile(path);
+		const keys = new Set<string>();
 		for (const ref of [...(cache.links ?? []), ...(cache.embeds ?? []), ...(cache.frontmatterLinks ?? [])]) {
 			const lp = getLinkpath(ref.link);
 			if (!lp) continue; // [[#heading]] in the same file
+			keys.add(linkKey(lp));
 			const dest = this.getFirstLinkpathDest(lp, path);
 			if (dest) resolved[dest.path] = (resolved[dest.path] ?? 0) + 1;
 			else unresolved[lp] = (unresolved[lp] ?? 0) + 1;
 		}
 		this.resolvedLinks[path] = resolved;
 		this.unresolvedLinks[path] = unresolved;
+		this.linkKeys.set(path, [...keys]);
+		for (const k of keys) {
+			let set = this.linkers.get(k);
+			if (!set) this.linkers.set(k, (set = new Set()));
+			set.add(path);
+		}
 	}
 
 	private addName(f: TFile): void {
@@ -204,3 +263,5 @@ export class MetadataCache extends Events {
 }
 
 const nameKey = (path: string) => path.slice(path.lastIndexOf('/') + 1).toLowerCase();
+/** Name a link refers to, comparable with a file's: "Folder/Note.md", "note" and "../note" all give "note". */
+const linkKey = (path: string) => nameKey(path).replace(/\.md$/, '');

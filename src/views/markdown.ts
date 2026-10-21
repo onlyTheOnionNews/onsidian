@@ -14,7 +14,7 @@ import { merge3 } from '../merge';
 import { setIcon } from '../icons';
 import { livePreview } from '../livepreview';
 import { parseFrontmatterYaml, renderProperties } from '../properties';
-import { MarkdownRenderer } from '../render';
+import { MarkdownRenderer, splitAtHeadings } from '../render';
 import type { TAbstractFile, TFile } from '../vault';
 import { Notice, TextFileView, type WorkspaceLeaf } from '../workspace';
 
@@ -114,7 +114,10 @@ export class MarkdownView extends TextFileView {
 			if (this.mode === 'preview') void this.renderPreview();
 		}));
 		// Link targets appearing/disappearing changes how links render (resolved vs unresolved).
-		this.registerEvent(this.app.metadataCache.on('resolved', () => this.mode === 'preview' && !this.dirty && void this.renderPreview()));
+		// Another note was created/renamed/deleted: re-render only if this note's links now point elsewhere.
+		this.registerEvent(this.app.metadataCache.on('resolved', () => {
+			if (this.mode === 'preview' && !this.dirty && this.linkState() !== this.renderedLinks) void this.renderPreview();
+		}));
 	}
 
 	onunload(): void {
@@ -343,8 +346,17 @@ export class MarkdownView extends TextFileView {
 		return (this.rendered = this.doRenderPreview());
 	}
 
+	private renderedLinks = '';
+
+	private linkState(): string {
+		const p = this.file?.path ?? '';
+		const mc = this.app.metadataCache;
+		return JSON.stringify([mc.resolvedLinks[p], mc.unresolvedLinks[p]]);
+	}
+
 	private async doRenderPreview(): Promise<void> {
 		const token = ++this.renderToken;
+		this.renderedLinks = this.linkState();
 		const src = this.getViewData();
 		const out = createDiv();
 		const fm = /^---\r?\n([\s\S]*?)\r?\n?---(?:\r?\n|$)/.exec(src);
@@ -362,11 +374,23 @@ export class MarkdownView extends TextFileView {
 				});
 			}
 		}
-		await MarkdownRenderer.render(this.app, body, out, this.file?.path ?? '', this);
+		// Long notes: show the first part at once, render the rest on later frames (ponytail: no virtualization;
+		// a 500 KB note still builds its full DOM, just without blocking the first paint).
+		const [first, ...rest] = splitAtHeadings(body, 32 * 1024);
+		const path = this.file?.path ?? '';
+		await MarkdownRenderer.render(this.app, first.text, out, path, this);
 		if (token !== this.renderToken) return; // a newer render started
 		const scroll = this.previewEl.scrollTop;
 		this.previewSizerEl.replaceChildren(...out.childNodes);
 		this.previewEl.scrollTop = scroll;
+		for (const chunk of rest) {
+			await new Promise((r) => setTimeout(r));
+			const part = createDiv();
+			await MarkdownRenderer.render(this.app, chunk.text, part, path, this, { lineOffset: chunk.lineOffset });
+			if (token !== this.renderToken) return;
+			this.previewSizerEl.append(...part.childNodes);
+			this.previewEl.scrollTop = scroll;
+		}
 	}
 
 	private onPreviewClick(e: MouseEvent): void {

@@ -8,6 +8,9 @@ import type {
 	ListItemCache, Loc, Pos, SectionCache, TagCache,
 } from 'obsidian';
 
+/** Bump whenever parsing output changes: persisted indexes (indexstore.ts) from other versions are discarded. */
+export const PARSER_VERSION = 1;
+
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const HEADING = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$/;
 const LIST_ITEM = /^([ \t]*)([-*+]|\d{1,9}[.)])(?:[ \t]+|$)(?:\[(.)\](?:[ \t]|$))?/;

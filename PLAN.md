@@ -417,7 +417,9 @@ blocked → the app is a fully local editor; wasm and permissions are irrelevant
 
 ## 10. Phased roadmap
 
-**Status (2026-10-20):** phases 1–4 are done; phase 5 is done except the parts that need a signed-in Relay account.
+**Status (2026-10-20):** phases 1–4 and 6 are done; phase 5 is done except the parts that need a signed-in Relay account.
+Phase 6 (`docs/performance.md`, benchmark at `/bench.html?n=…` in dev): at 10k notes, warm startup to fully indexed is 3.6 s (target < 5 s; cold 7.8 s, read-bound). Common searches take 12–96 ms (target 50 ms; multi-word with thousands of hits 100–420 ms). The graph draws in 1–11 ms with its layout in a worker. Main bundle 1,373 → 897 KB. No wasm was needed; the one measured candidate is the graph's many-body force for graphs over ~5k nodes.
+
 Phase 5:
 - **Merge:** a note changed elsewhere while it has unsaved edits is 3-way merged (diff3). Conflicting hunks keep the local text, and the other version is saved as a "conflicted copy" note.
 - **Tabs:** one tab owns a vault (Web Locks). A second tab can take it over; the owner saves and hands it off over a BroadcastChannel.
@@ -431,17 +433,15 @@ Phase 4: Phase 4: note core plugins, file recovery, graph view, Canvas, Bases (4
 - **Plugins:** 36 of the top 50 mobile-compatible plugins load cleanly (`docs/plugin-compat.md`). API coverage is 128/159 runtime exports (`npm run api-coverage`).
 - **Installs:** only 1 of the top 40 plugins is installable via jsDelivr, so one-click installs need a network bridge (§6.3) or manual install. See open question 6.
 
-Known gaps carried forward, each marked `ponytail:` in code:
-- Search is a main-thread linear scan; the metadata index isn't persisted between sessions.
+Known gaps carried forward, each marked `ponytail:` in code (performance limits: `docs/performance.md`):
+- Search scans note text linearly (fast enough to ~10k notes; no inverted index).
+- Reading view renders long notes progressively but builds their whole DOM (no section virtualization).
 - `.obsidian/types.json` (explicit property types) isn't read or written.
 - Root splits can't be resized; there are no stacked tabs, pop-out windows, or drag-and-drop in the explorer.
-- Reading view re-renders the whole note on each change.
-- Graph view is Canvas 2D with physics on the main thread (worker/WebGL for very large vaults).
 - Canvas text cards edit in a plain textarea, not a full editor.
 - PDF view has no outline sidebar or annotation tools.
 - Importer has no OneNote (needs a Microsoft app registration for the hosted origin) or Apple Notes (needs SQLite via wasm).
 - Bases filter editing is in the YAML source; the toolbar covers views, layout, sort, properties, grouping and view settings.
-- Main bundle is 1.36 MB (423 KB gzipped); lazy-loading core plugins is a phase 6 task.
 
 1. **Foundation:** capability probe, adapters (FsAccess/OPFS/IDB/Mem), Vault + events, MetadataCache (JS worker + fixtures),
    workspace (splits/tabs/sidedocks), file explorer, CM6 source + reading view, default theme with full CSS variable set.

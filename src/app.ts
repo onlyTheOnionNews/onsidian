@@ -64,7 +64,7 @@ export class App {
 
 	constructor(adapter: BaseAdapter, useWorker: boolean, public appId: string) {
 		this.vault = new Vault(adapter);
-		this.metadataCache = new MetadataCache(this.vault, useWorker);
+		this.metadataCache = new MetadataCache(this.vault, useWorker, appId);
 		this.fileManager = new FileManager(this);
 		this.commands = new Commands(this);
 		this.workspace = new Workspace(this);
@@ -113,7 +113,7 @@ export class App {
 		// Community plugins load after the layout, as in Obsidian (their views then claim pending leaves).
 		await this.plugins.initialize();
 		// Index in the background: the UI is usable while a large vault is still being parsed.
-		void this.metadataCache.initialize();
+		void this.metadataCache.initialize().then(() => this.vault.warmContentCache());
 	}
 
 	/** Save every editor with pending changes now. */

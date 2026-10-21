@@ -1,7 +1,6 @@
 // Importer core plugin (PLAN §5.6): Markdown, HTML, CSV, Evernote ENEX, Notion export, Google Keep (Takeout).
 // Everything runs in the browser; .zip inputs are unpacked with fflate. Existing files are never overwritten.
 // Not here: OneNote (needs a Microsoft app registration for the deployed origin) and Apple Notes (needs SQLite/wasm).
-import { unzipSync } from 'fflate';
 import moment from 'moment';
 import { htmlToMarkdown, stringifyYaml } from '../api';
 import type { App } from '../app';
@@ -26,6 +25,7 @@ async function readInputs(files: File[]): Promise<InFile[]> {
 	for (const f of files) {
 		const bytes = new Uint8Array(await f.arrayBuffer());
 		if (f.name.toLowerCase().endsWith('.zip')) {
+			const { unzipSync } = await import('fflate');
 			for (const [path, data] of Object.entries(unzipSync(bytes))) {
 				if (!path.endsWith('/') && !path.startsWith('__MACOSX/')) out.push({ path, bytes: data });
 			}

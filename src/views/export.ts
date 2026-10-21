@@ -3,7 +3,7 @@
 // from the running app so the site looks the same.
 // ponytail: rendered sequentially in a hidden container (fine for hundreds of notes); no search, graph or
 // per-page incremental export. PDF/canvas/base embeds export as links.
-import { zip, type Zippable } from 'fflate';
+import type { Zippable } from 'fflate';
 import type { App } from '../app';
 import { CorePlugin } from '../coreplugins';
 import { Component } from '../events';
@@ -115,6 +115,7 @@ export async function exportStaticSite(app: App, folder: string, title: string):
 		host.remove();
 		component.unload();
 	}
+	const { zip } = await import('fflate');
 	const zipBytes = await new Promise<Uint8Array>((res, rej) => zip(files, { level: 6 }, (e, out) => (e ? rej(e) : res(out))));
 	return { pages: notes.length, zipBytes };
 }

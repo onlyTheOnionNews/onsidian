@@ -1,6 +1,5 @@
 // Web viewer core plugin (PLAN §5.6): sandboxed <iframe>; reader mode (fetch via network bridge + Readability) for the
 // many sites that refuse framing; save the reader version to the vault as Markdown; optional "open external links here".
-import { Readability } from '@mozilla/readability';
 import DOMPurify from 'dompurify';
 import moment from 'moment';
 import { htmlToMarkdown } from '../api';
@@ -122,6 +121,7 @@ export class WebViewerView extends ItemView {
 			const base = doc.createElement('base');
 			base.href = this.url;
 			doc.head.prepend(base);
+			const { Readability } = await import('@mozilla/readability');
 			const article = new Readability(doc).parse();
 			if (!article?.content) throw new Error('No readable article found on this page.');
 			this.title = article.title || this.title;

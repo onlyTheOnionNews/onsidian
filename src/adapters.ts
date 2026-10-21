@@ -34,6 +34,13 @@ export abstract class BaseAdapter implements DataAdapter {
 		return (await this.stat(path)) !== null;
 	}
 
+	/** list() plus every file's stat, in one pass where the backend allows (the vault scan uses this). */
+	async listWithStats(path: string): Promise<{ files: [string, Stat][]; folders: string[] }> {
+		const l = await this.list(path);
+		const files = await Promise.all(l.files.map(async (p) => [p, await this.stat(p)] as const));
+		return { folders: l.folders, files: files.filter((x): x is [string, Stat] => !!x[1]) };
+	}
+
 	async read(path: string): Promise<string> {
 		return dec.decode(await this.readBinary(path));
 	}
@@ -130,8 +137,16 @@ export class HandleAdapter extends BaseAdapter {
 		return h;
 	}
 
+	/** File handles by path (from scans and lookups), so reads don't re-walk the folders from the root. Handles are
+	 * locators: a cached one for a since-deleted path fails like a fresh lookup would. */
+	private handles = new Map<string, FileSystemFileHandle>();
+
 	private async fileHandle(path: string, create = false): Promise<FileSystemFileHandle> {
-		return (await this.dir(dirname(path), create)).getFileHandle(basename(path), { create });
+		const cached = this.handles.get(path);
+		if (cached) return cached;
+		const h = await (await this.dir(dirname(path), create)).getFileHandle(basename(path), { create });
+		this.handles.set(path, h);
+		return h;
 	}
 
 	async stat(path: string): Promise<Stat | null> {
@@ -164,6 +179,18 @@ export class HandleAdapter extends BaseAdapter {
 		return out;
 	}
 
+	/** Stats come straight from the directory's handles instead of re-walking from the root per file. */
+	async listWithStats(path: string): Promise<{ files: [string, Stat][]; folders: string[] }> {
+		const files: Promise<[string, Stat]>[] = [];
+		const folders: string[] = [];
+		for await (const [name, h] of (await this.dir(path)) as any as AsyncIterable<[string, FileSystemHandle]>) {
+			const p = join(path, name);
+			if (h.kind === 'directory') folders.push(p);
+			else this.handles.set(p, h as FileSystemFileHandle), files.push((h as FileSystemFileHandle).getFile().then((f) => [p, { type: 'file', ctime: f.lastModified, mtime: f.lastModified, size: f.size }]));
+		}
+		return { files: await Promise.all(files), folders };
+	}
+
 	async readBinary(path: string): Promise<ArrayBuffer> {
 		return (await (await this.fileHandle(path)).getFile()).arrayBuffer();
 	}
@@ -181,6 +208,7 @@ export class HandleAdapter extends BaseAdapter {
 
 	protected async removeEntry(path: string, recursive: boolean): Promise<void> {
 		await (await this.dir(dirname(path))).removeEntry(basename(path), { recursive });
+		for (const p of this.handles.keys()) if (p === path || p.startsWith(`${path}/`)) this.handles.delete(p);
 	}
 }
 

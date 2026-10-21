@@ -321,6 +321,36 @@ export const MarkdownRenderer = {
 	},
 };
 
+/**
+ * Split a long note at headings (outside code fences) into chunks of at least `min` characters, so reading view can
+ * show the start at once and render the rest on later frames. One chunk when splitting could change the output:
+ * footnotes and reference-style links are defined in one place and used in another.
+ */
+export function splitAtHeadings(text: string, min: number): { text: string; lineOffset: number }[] {
+	if (text.length < min * 2 || /^ {0,3}\[[^\]\n]+\]:/m.test(text)) return [{ text, lineOffset: 0 }];
+	const out: { text: string; lineOffset: number }[] = [];
+	let start = 0;
+	let startLine = 0;
+	let fence = '';
+	for (let pos = 0, line = 0; pos < text.length; line++) {
+		const nl = text.indexOf('\n', pos);
+		const end = nl < 0 ? text.length : nl;
+		const l = text.slice(pos, end);
+		const f = /^ {0,3}(`{3,}|~{3,})/.exec(l);
+		if (f) {
+			if (!fence) fence = f[1];
+			else if (f[1][0] === fence[0] && f[1].length >= fence.length && !l.slice(f[0].length).trim()) fence = '';
+		} else if (!fence && pos - start >= min && /^#{1,6}[ \t]/.test(l)) {
+			out.push({ text: text.slice(start, pos), lineOffset: startLine });
+			start = pos;
+			startLine = line;
+		}
+		pos = end + 1;
+	}
+	out.push({ text: text.slice(start), lineOffset: startLine });
+	return out;
+}
+
 /** Hide trailing "^block-id" markers and tag the block so links to it can scroll there. */
 function markBlockIds(root: HTMLElement): void {
 	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);

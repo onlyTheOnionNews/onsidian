@@ -1,7 +1,6 @@
 // Web clipper core plugin (PLAN §7.2): pages arrive from a bookmarklet (postMessage from the page that opened us) or
 // from the installed PWA's share target (the Service Worker stashes the POST in Cache Storage). Content is never put
 // in a URL. Every clip is confirmed by the user before anything is written, and the HTML is sanitized on conversion.
-import { Readability } from '@mozilla/readability';
 import moment from 'moment';
 import { htmlToMarkdown, stringifyYaml } from '../api';
 import type { App } from '../app';
@@ -12,7 +11,7 @@ import { Notice } from '../workspace';
 import { MSG, bookmarklet, parseClip, type Clip } from './clip';
 
 /** Clip → note text: frontmatter with the source, then the article (or selection/shared text) as Markdown. */
-export function clipToMarkdown(clip: Clip, now = moment()): { title: string; body: string } {
+export async function clipToMarkdown(clip: Clip, now = moment()): Promise<{ title: string; body: string }> {
 	let title = clip.title;
 	let body = clip.text?.trim() ?? '';
 	if (!body && clip.html) {
@@ -22,6 +21,7 @@ export function clipToMarkdown(clip: Clip, now = moment()): { title: string; bod
 			base.href = clip.url;
 			doc.head.prepend(base);
 		}
+		const { Readability } = await import('@mozilla/readability');
 		const article = new Readability(doc.cloneNode(true) as Document).parse();
 		title ||= article?.title ?? '';
 		// htmlToMarkdown sanitizes (DOMPurify) before converting.
@@ -36,8 +36,8 @@ class ClipModal extends Modal {
 	constructor(app: App, private clip: Clip) {
 		super(app);
 	}
-	onOpen(): void {
-		const { title, body } = clipToMarkdown(this.clip);
+	async onOpen(): Promise<void> {
+		const { title, body } = await clipToMarkdown(this.clip);
 		let name = title.replace(/[\\/:*?"<>|#^[\]]/g, '').slice(0, 100).trim() || 'Clipped page';
 		this.setTitle('Save clipped page?');
 		if (this.clip.url) this.contentEl.createDiv({ cls: 'setting-item-description', text: `From ${this.clip.url}` });

@@ -1,8 +1,8 @@
 // Graph view core plugin (PLAN §5.3): global graph + local graph, filters, color groups, display and force settings.
 // Settings use Obsidian's .obsidian/graph.json keys; colors come from the documented --graph-* CSS variables.
-// ponytail: Canvas 2D renderer + d3-force on the main thread — smooth to a few thousand nodes. For very large vaults,
-// move the simulation into a worker and/or render with WebGL (PLAN §5.3 lists both).
-import { forceCenter, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
+// Layout runs in a worker (graph-layout.ts); drawing is batched Canvas 2D with off-screen culling.
+// ponytail: Canvas 2D, not WebGL — draws 10k nodes in ~10 ms. Switch to WebGL if far larger graphs need 60 fps.
+import type { SimulationNodeDatum } from 'd3-force';
 import type { App } from '../app';
 import { CorePlugin } from '../coreplugins';
 import { debounce } from '../events';
@@ -13,6 +13,7 @@ import { searchVault } from '../search';
 import { Setting } from '../ui';
 import { TFile } from '../vault';
 import { ItemView, type WorkspaceLeaf } from '../workspace';
+import { startLayout, type Layout } from './graph-layout';
 
 interface GraphOptions {
 	search: string;
@@ -48,19 +49,19 @@ interface Node extends SimulationNodeDatum {
 	color?: string;
 }
 
-type Link = SimulationLinkDatum<Node> & { source: Node | string; target: Node | string };
+type Link = { source: Node; target: Node };
 
 export class GraphView extends ItemView {
 	icon = 'git-fork';
 	private canvas: HTMLCanvasElement;
 	private ctx: CanvasRenderingContext2D;
-	private sim: Simulation<Node, Link> | null = null;
+	private layout: Layout | null = null;
 	private nodes: Node[] = [];
 	private links: Link[] = [];
 	private neighbors = new Map<string, Set<string>>();
 	private view = { x: 0, y: 0, k: 1 };
 	private hover: Node | null = null;
-	private drag: { node: Node | null; startX: number; startY: number; moved: boolean; vx: number; vy: number } | null = null;
+	private drag: { node: Node | null; index: number; startX: number; startY: number; moved: boolean; vx: number; vy: number } | null = null;
 	private frame = 0;
 	private opts: GraphOptions = { ...DEFAULTS };
 	private controlsEl: HTMLElement;
@@ -99,7 +100,7 @@ export class GraphView extends ItemView {
 		this.registerEvent(this.app.workspace.on('css-change', () => { this.readColors(); this.draw(); }));
 		if (this.local) this.registerEvent(this.app.workspace.on('file-open', () => { this.updateHeader(); void this.rebuild(); }));
 		this.register(() => {
-			this.sim?.stop();
+			this.layout?.stop();
 			this.resizeObs.disconnect();
 			cancelAnimationFrame(this.frame);
 		});
@@ -118,6 +119,7 @@ export class GraphView extends ItemView {
 			node: v('--graph-node', '#999'), unresolved: v('--graph-node-unresolved', '#666'), focused: v('--graph-node-focused', '#5b8def'),
 			tag: v('--graph-node-tag', '#3c9'), attachment: v('--graph-node-attachment', '#ca3'), line: v('--graph-line', '#555'),
 			text: v('--graph-text', '#ccc'), bg: v('--background-primary', '#111'),
+			font: getComputedStyle(document.body).getPropertyValue('--font-interface') || 'sans-serif',
 		};
 	}
 
@@ -128,7 +130,7 @@ export class GraphView extends ItemView {
 		const o = this.opts;
 		const old = new Map(this.nodes.map((n) => [n.id, n]));
 		const nodes = new Map<string, Node>();
-		const links: Link[] = [];
+		const links: { source: string; target: string }[] = [];
 		const add = (id: string, label: string, kind: Kind) => {
 			if (!nodes.has(id)) {
 				const prev = old.get(id);
@@ -177,8 +179,8 @@ export class GraphView extends ItemView {
 			if (center && nodes.has(center)) {
 				const adj = new Map<string, Set<string>>();
 				for (const l of links) {
-					const a = l.source as string;
-					const b = l.target as string;
+					const a = l.source;
+					const b = l.target;
 					addTo(adj, a, b);
 					addTo(adj, b, a);
 				}
@@ -193,11 +195,11 @@ export class GraphView extends ItemView {
 			for (const id of [...nodes.keys()]) if (!keep.has(id)) nodes.delete(id);
 		}
 
-		const finalLinks = links.filter((l) => nodes.has(l.source as string) && nodes.has(l.target as string));
+		const finalLinks = links.filter((l) => nodes.has(l.source) && nodes.has(l.target));
 		this.neighbors = new Map();
 		for (const l of finalLinks) {
-			const a = l.source as string;
-			const b = l.target as string;
+			const a = l.source;
+			const b = l.target;
 			nodes.get(a)!.degree++;
 			nodes.get(b)!.degree++;
 			addTo(this.neighbors, a, b);
@@ -214,21 +216,16 @@ export class GraphView extends ItemView {
 		}
 
 		this.nodes = [...nodes.values()];
-		this.links = finalLinks.filter((l) => nodes.has(l.source as string) && nodes.has(l.target as string));
+		this.links = finalLinks.filter((l) => nodes.has(l.source) && nodes.has(l.target)).map((l) => ({ source: nodes.get(l.source)!, target: nodes.get(l.target)! }));
 		this.restartSimulation();
 	}
 
 	private restartSimulation(): void {
 		const o = this.opts;
-		this.sim?.stop();
-		this.sim = forceSimulation<Node, Link>(this.nodes)
-			.force('link', forceLink<Node, Link>(this.links).id((n) => n.id).distance(o.linkDistance * 0.4).strength(o.linkStrength * 0.5))
-			.force('charge', forceManyBody<Node>().strength(-o.repelStrength * 12).distanceMax(600))
-			.force('center', forceCenter(0, 0))
-			.force('x', forceX<Node>(0).strength(o.centerStrength * 0.05))
-			.force('y', forceY<Node>(0).strength(o.centerStrength * 0.05))
-			.alphaDecay(0.03)
-			.on('tick', () => this.requestDraw());
+		this.layout?.stop();
+		const index = new Map(this.nodes.map((n, i) => [n, i]));
+		const links = this.links.map((l) => ({ source: index.get(l.source)!, target: index.get(l.target)! }));
+		this.layout = startLayout(this.nodes, links, o, () => this.requestDraw());
 	}
 
 	// ---------------- Rendering ----------------
@@ -273,40 +270,68 @@ export class GraphView extends ItemView {
 		const focus = this.hover;
 		const near = focus ? this.neighbors.get(focus.id) ?? new Set<string>() : null;
 		const active = this.app.workspace.getActiveFile()?.path;
+		// Visible area in graph coordinates (plus a margin): nodes, links and labels outside it are skipped.
+		const m = 40 / view.k;
+		const x0 = -view.x / view.k - m;
+		const y0 = -view.y / view.k - m;
+		const x1 = (canvas.width / dpr - view.x) / view.k + m;
+		const y1 = (canvas.height / dpr - view.y) / view.k + m;
+		const visible = (n: Node) => n.x! >= x0 && n.x! <= x1 && n.y! >= y0 && n.y! <= y1;
 
+		// One path per style: thousands of separate stroke()/fill() calls are what made big graphs slow.
 		ctx.lineWidth = (1 / view.k) * opts.lineSizeMultiplier;
+		const lit = new Path2D();
+		const rest = new Path2D();
+		const litArrows = new Path2D();
+		const restArrows = new Path2D();
 		for (const l of this.links) {
-			const s = l.source as Node;
-			const t = l.target as Node;
-			if (s.x === undefined || t.x === undefined) continue;
-			const lit = focus && (s === focus || t === focus);
-			ctx.globalAlpha = focus ? (lit ? 0.9 : 0.12) : 0.5;
-			ctx.strokeStyle = lit ? colors.focused : colors.line;
-			ctx.beginPath();
-			ctx.moveTo(s.x, s.y!);
-			ctx.lineTo(t.x, t.y!);
-			ctx.stroke();
-			if (opts.showArrow) this.arrow(s, t);
+			const s = l.source;
+			const t = l.target;
+			if (s.x === undefined || t.x === undefined || (!visible(s) && !visible(t))) continue;
+			const isLit = focus && (s === focus || t === focus);
+			const p = isLit ? lit : rest;
+			p.moveTo(s.x, s.y!);
+			p.lineTo(t.x, t.y!);
+			if (opts.showArrow) this.arrow(s, t, isLit ? litArrows : restArrows);
+		}
+		ctx.globalAlpha = focus ? 0.12 : 0.5;
+		ctx.strokeStyle = ctx.fillStyle = colors.line;
+		ctx.stroke(rest);
+		ctx.fill(restArrows);
+		if (focus) {
+			ctx.globalAlpha = 0.9;
+			ctx.strokeStyle = ctx.fillStyle = colors.focused;
+			ctx.stroke(lit);
+			ctx.fill(litArrows);
 		}
 
+		const fills = new Map<string, Path2D>();
 		for (const n of this.nodes) {
-			if (n.x === undefined) continue;
+			if (n.x === undefined || !visible(n)) continue;
 			const dim = focus && n !== focus && !near!.has(n.id);
-			ctx.globalAlpha = dim ? 0.2 : 1;
-			ctx.fillStyle = n === focus || n.id === active ? colors.focused : n.color ?? (n.kind === 'file' ? colors.node : colors[n.kind]);
-			ctx.beginPath();
-			ctx.arc(n.x, n.y!, this.radius(n), 0, Math.PI * 2);
-			ctx.fill();
+			const color = n === focus || n.id === active ? colors.focused : n.color ?? (n.kind === 'file' ? colors.node : colors[n.kind]);
+			const key = `${dim ? 0.2 : 1}|${color}`;
+			let p = fills.get(key);
+			if (!p) fills.set(key, (p = new Path2D()));
+			const r = this.radius(n);
+			p.moveTo(n.x + r, n.y!);
+			p.arc(n.x, n.y!, r, 0, Math.PI * 2);
+		}
+		for (const [key, p] of fills) {
+			const [alpha, color] = key.split('|');
+			ctx.globalAlpha = Number(alpha);
+			ctx.fillStyle = color;
+			ctx.fill(p);
 		}
 
 		// Labels fade in with zoom (textFadeMultiplier shifts the threshold); hovered node + neighbors always show.
 		const threshold = 0.7 - opts.textFadeMultiplier * 0.15;
 		const zoomAlpha = Math.max(0, Math.min(1, (view.k - threshold) * 3));
-		ctx.font = `${12 / view.k}px ${getComputedStyle(document.body).getPropertyValue('--font-interface') || 'sans-serif'}`;
+		ctx.font = `${12 / view.k}px ${colors.font}`;
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'top';
 		for (const n of this.nodes) {
-			if (n.x === undefined) continue;
+			if (n.x === undefined || !visible(n)) continue;
 			const isFocus = n === focus || !!near?.has(n.id);
 			const alpha = isFocus ? 1 : focus ? 0.2 * zoomAlpha : zoomAlpha;
 			if (alpha <= 0) continue;
@@ -317,20 +342,16 @@ export class GraphView extends ItemView {
 		ctx.globalAlpha = 1;
 	}
 
-	private arrow(s: Node, t: Node): void {
-		const { ctx } = this;
+	private arrow(s: Node, t: Node, p: Path2D): void {
 		const ang = Math.atan2(t.y! - s.y!, t.x! - s.x!);
 		const r = this.radius(t);
 		const tipX = t.x! - Math.cos(ang) * r;
 		const tipY = t.y! - Math.sin(ang) * r;
 		const size = 6 / this.view.k;
-		ctx.beginPath();
-		ctx.moveTo(tipX, tipY);
-		ctx.lineTo(tipX - size * Math.cos(ang - 0.4), tipY - size * Math.sin(ang - 0.4));
-		ctx.lineTo(tipX - size * Math.cos(ang + 0.4), tipY - size * Math.sin(ang + 0.4));
-		ctx.closePath();
-		ctx.fillStyle = ctx.strokeStyle;
-		ctx.fill();
+		p.moveTo(tipX, tipY);
+		p.lineTo(tipX - size * Math.cos(ang - 0.4), tipY - size * Math.sin(ang - 0.4));
+		p.lineTo(tipX - size * Math.cos(ang + 0.4), tipY - size * Math.sin(ang + 0.4));
+		p.closePath();
 	}
 
 	// ---------------- Interaction ----------------
@@ -356,12 +377,8 @@ export class GraphView extends ItemView {
 		c.addEventListener('pointerdown', (e) => {
 			c.setPointerCapture(e.pointerId);
 			const node = this.nodeAt(this.toGraph(e));
-			this.drag = { node, startX: e.clientX, startY: e.clientY, moved: false, vx: this.view.x, vy: this.view.y };
-			if (node) {
-				node.fx = node.x;
-				node.fy = node.y;
-				this.sim?.alphaTarget(0.3).restart();
-			}
+			this.drag = { node, index: node ? this.nodes.indexOf(node) : -1, startX: e.clientX, startY: e.clientY, moved: false, vx: this.view.x, vy: this.view.y };
+			if (node) this.layout?.drag(this.drag.index, node.x!, node.y!);
 		});
 		c.addEventListener('pointermove', (e) => {
 			const p = this.toGraph(e);
@@ -376,8 +393,8 @@ export class GraphView extends ItemView {
 			}
 			if (Math.hypot(e.clientX - this.drag.startX, e.clientY - this.drag.startY) > 3) this.drag.moved = true;
 			if (this.drag.node) {
-				this.drag.node.fx = p.x;
-				this.drag.node.fy = p.y;
+				this.layout?.drag(this.drag.index, p.x, p.y);
+				this.requestDraw();
 			} else {
 				this.view.x = this.drag.vx + e.clientX - this.drag.startX;
 				this.view.y = this.drag.vy + e.clientY - this.drag.startY;
@@ -388,9 +405,7 @@ export class GraphView extends ItemView {
 			const d = this.drag;
 			this.drag = null;
 			if (d?.node) {
-				d.node.fx = null;
-				d.node.fy = null;
-				this.sim?.alphaTarget(0);
+				this.layout?.drag(d.index, null, null);
 				if (!d.moved) this.open(d.node, e);
 			}
 		});

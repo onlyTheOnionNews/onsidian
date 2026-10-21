@@ -10,7 +10,6 @@ import * as lezerHighlight from '@lezer/highlight';
 import * as lezerLr from '@lezer/lr';
 import DOMPurify from 'dompurify';
 import { dump as dumpYaml, load as loadYaml, CORE_SCHEMA } from 'js-yaml';
-import { icons as lucideIcons } from 'lucide';
 import moment from 'moment';
 import { BaseAdapter } from './adapters';
 import { loadPdfJs } from './views/pdf';
@@ -22,7 +21,7 @@ import {
 import { Editor } from './editor';
 import { Component, Events, debounce } from './events';
 import { FileManager } from './filemanager';
-import { addIcon, getIcon, removeIcon, setIcon } from './icons';
+import { addIcon, getIcon, getIconIds, removeIcon, setIcon } from './icons';
 import { Keymap, Scope, isMac } from './keymap';
 import { MetadataCache } from './metadata';
 import { SettingPage, SettingTab } from './modals';
@@ -265,9 +264,6 @@ export class Tasks {
 
 export const getLanguage = (): string => (navigator.language || 'en').split('-')[0];
 export const getBlobArrayBuffer = (blob: Blob): Promise<ArrayBuffer> => blob.arrayBuffer();
-export function getIconIds(): string[] {
-	return Object.keys(lucideIcons).map((n) => 'lucide-' + n.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z])([A-Z][a-z])/g, '$1-$2').toLowerCase());
-}
 /** ViewPlugin exposing { mousedown } (Live Preview selection state). */
 export const livePreviewState = cmView.ViewPlugin.define(() => ({ mousedown: false }));
 

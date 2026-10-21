@@ -57,3 +57,45 @@ for (const [name, backend] of [['memory', () => new MemBackend()], ['indexeddb',
 		expect(vault.getFileByPath('notes/new.md')).toBeInstanceOf(TFile);
 	});
 }
+
+test('a read that finishes after a write never caches the older text', async () => {
+	const backend = new MemBackend();
+	const adapter = new KvAdapter(backend, 'Test');
+	await adapter.write('n.md', 'old');
+	const vault = new Vault(adapter);
+	await vault.load();
+	const f = vault.getFileByPath('n.md')!;
+	const get = backend.get.bind(backend);
+	backend.get = async (k) => {
+		const r = await get(k); // snapshot now, deliver late
+		await new Promise((res) => setTimeout(res, 20));
+		return r;
+	};
+	const slow = vault.cachedRead(f);
+	await vault.modify(f, 'new');
+	expect(await slow).toBe('old'); // that read's own result
+	expect(await vault.cachedRead(f)).toBe('new');
+});
+
+test('persisted index: reused on reopen, re-parsed when a note changed while closed', async () => {
+	const adapter = new KvAdapter(new MemBackend(), 'Test');
+	await adapter.write('a.md', '#one [[b]]');
+	await adapter.write('c.md', '#keep');
+	const open = async () => {
+		const vault = new Vault(adapter);
+		await vault.load();
+		const meta = new MetadataCache(vault, false, 'persist-test');
+		await meta.initialize();
+		await new Promise((r) => setTimeout(r, 50)); // the index write is fire-and-forget
+		return { vault, meta };
+	};
+	const first = await open();
+	expect(first.meta.getCache('a.md')?.tags?.[0].tag).toBe('#one');
+
+	await new Promise((r) => setTimeout(r, 5)); // a later mtime
+	await adapter.write('a.md', '#two [[b]] [[c]]');
+	const second = await open();
+	expect(second.meta.getCache('a.md')?.tags?.[0].tag).toBe('#two');
+	expect(second.meta.resolvedLinks['a.md']).toEqual({ 'c.md': 1 });
+	expect(second.meta.getCache('c.md')?.tags?.[0].tag).toBe('#keep');
+});

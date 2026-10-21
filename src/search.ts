@@ -126,11 +126,18 @@ interface Ctx {
 /** A slice of the note the current sub-expression must match within. */
 interface Scope { from: number; to: number; }
 
+const regexCache = new WeakMap<object, RegExp[]>();
+
+/** Compiled once per query node and case mode (search runs it against every file). */
 function termRegex(n: Extract<Node, { t: 'term' }>, caseSensitive: boolean): RegExp {
+	const cached = regexCache.get(n) ?? [];
+	regexCache.set(n, cached);
+	const k = caseSensitive ? 1 : 0;
+	if (cached[k]) return cached[k];
 	// /regex/ follows the match-case setting too, unless it carries its own "i" flag.
-	if (n.regex) return new RegExp(n.regex.source, caseSensitive && !n.regex.flags.includes('i') ? 'g' : 'gi');
+	if (n.regex) return (cached[k] = new RegExp(n.regex.source, caseSensitive && !n.regex.flags.includes('i') ? 'g' : 'gi'));
 	const esc = n.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-	return new RegExp(esc, caseSensitive ? 'g' : 'gi');
+	return (cached[k] = new RegExp(esc, caseSensitive ? 'g' : 'gi'));
 }
 
 /** Matches of `n` inside `scope` of the note text. Returns false when the expression doesn't hold there. */
@@ -162,7 +169,7 @@ function evalIn(n: Node, ctx: Ctx, scope: Scope, field: 'any' | 'content' | 'fil
 				return re.test(ctx.file.path);
 			}
 			re.lastIndex = 0;
-			const slice = ctx.text.slice(scope.from, scope.to);
+			const slice = scope.from === 0 && scope.to === ctx.text.length ? ctx.text : ctx.text.slice(scope.from, scope.to);
 			for (let m = re.exec(slice); m; m = re.exec(slice)) {
 				if (!m[0]) { re.lastIndex++; continue; }
 				ctx.matches.push({ from: scope.from + m.index, to: scope.from + m.index + m[0].length });
@@ -203,22 +210,32 @@ function evalOp(op: string, item: Node, ctx: Ctx, scope: Scope): boolean {
 			if (hit) for (const t of ctx.cache?.tags ?? []) if (t.tag.slice(1).toLowerCase().startsWith(want)) ctx.matches.push({ from: t.position.start.offset, to: t.position.end.offset });
 			return hit;
 		}
-		case 'line': return someScope(lineScopes(ctx.text, scope), item, ctx);
-		case 'block': return someScope((ctx.cache?.sections ?? []).map((s) => ({ from: s.position.start.offset, to: s.position.end.offset })), item, ctx);
-		case 'section': return someScope(headingSections(ctx), item, ctx);
+		case 'line': return someScope(() => lineScopes(ctx.text, scope), item, ctx, scope);
+		case 'block': return someScope(() => (ctx.cache?.sections ?? []).map((s) => ({ from: s.position.start.offset, to: s.position.end.offset })), item, ctx, scope);
+		case 'section': return someScope(() => headingSections(ctx), item, ctx, scope);
 		case 'task':
 		case 'task-todo':
 		case 'task-done': {
 			const tasks = (ctx.cache?.listItems ?? []).filter((li) => li.task !== undefined && (op === 'task' || (op === 'task-todo') === (li.task === ' ')));
-			return someScope(tasks.map((li) => ({ from: li.position.start.offset, to: li.position.end.offset })), item, ctx);
+			return someScope(() => tasks.map((li) => ({ from: li.position.start.offset, to: li.position.end.offset })), item, ctx, scope);
 		}
 	}
 	return false;
 }
 
-function someScope(scopes: Scope[], item: Node, ctx: Ctx): boolean {
+const hasNot = (n: Node): boolean => n.t === 'not' || ((n as any).items ?? []).some(hasNot) || (!!(n as any).item && hasNot((n as any).item));
+
+/** `item` must match within one of the scopes (lines, blocks, sections, tasks) inside `outer`. */
+function someScope(scopes: () => Scope[], item: Node, ctx: Ctx, outer: Scope): boolean {
+	// Without negation, a match inside a part implies a match in the whole: reject on the whole first (cheap).
+	if (!hasNot(item)) {
+		const saved = ctx.matches.length;
+		const ok = evalIn(item, ctx, outer, 'content');
+		ctx.matches.length = saved;
+		if (!ok) return false;
+	}
 	let any = false;
-	for (const s of scopes) {
+	for (const s of scopes()) {
 		const saved = ctx.matches.length;
 		if (evalIn(item, ctx, s, 'content')) any = true;
 		else ctx.matches.length = saved;
@@ -228,12 +245,11 @@ function someScope(scopes: Scope[], item: Node, ctx: Ctx): boolean {
 
 function lineScopes(text: string, scope: Scope): Scope[] {
 	const out: Scope[] = [];
-	let start = scope.from;
-	for (let i = scope.from; i <= scope.to; i++) {
-		if (i === scope.to || text[i] === '\n') {
-			out.push({ from: start, to: i });
-			start = i + 1;
-		}
+	for (let start = scope.from; start <= scope.to; ) {
+		const nl = text.indexOf('\n', start);
+		const end = nl < 0 || nl > scope.to ? scope.to : nl;
+		out.push({ from: start, to: end });
+		start = end + 1;
 	}
 	return out;
 }
@@ -251,10 +267,18 @@ export async function searchVault(app: App, query: string, opts: { caseSensitive
 	const ast = parseQuery(query);
 	if (!ast) return [];
 	const out: FileResult[] = [];
-	let n = 0;
-	for (const file of app.vault.getFiles()) {
+	const files = app.vault.getFiles();
+	let slice = performance.now();
+	for (let i = 0; i < files.length; i++) {
 		if (opts.signal?.cancelled) return out;
-		if (++n % 50 === 0) await new Promise((r) => setTimeout(r));
+		// Yield to the UI about every 12 ms of work (a fixed every-N-files yield costs ~4 ms each in timer clamping).
+		if (performance.now() - slice > 12) {
+			await new Promise((r) => setTimeout(r));
+			slice = performance.now();
+		}
+		// Notes not read yet (persisted index, fresh vault): read the next batch in parallel, not one at a time.
+		if (i % 256 === 0) await Promise.all(files.slice(i, i + 256).filter((f) => f.extension === 'md').map((f) => app.vault.cachedRead(f)));
+		const file = files[i];
 		const isMd = file.extension === 'md';
 		const ctx: Ctx = {
 			file,
