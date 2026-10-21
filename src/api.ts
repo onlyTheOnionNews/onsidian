@@ -63,7 +63,7 @@ export const Platform = {
 	isLinux: /Linux/.test(ua) && !/Android/.test(ua),
 	isSafari: /Safari/.test(ua) && !/Chrome|Chromium|Edg/.test(ua),
 	resourcePathPrefix: 'blob:',
-	/** obsidian-online extension: lets plugins detect the web build. */
+	/** onsidian extension: lets plugins detect the web build. */
 	isWeb: true,
 };
 
@@ -306,7 +306,7 @@ export const obsidianModule = {
 function unavailable(name: string): unknown {
 	// A regular function (not an arrow): it needs a .prototype so `class X extends require('mod').Y` still loads.
 	const fail = function () {
-		throw new Error(`"${name}" is not available in the browser (obsidian-online). This plugin path is desktop-only.`);
+		throw new Error(`"${name}" is not available in the browser (onsidian). This plugin path is desktop-only.`);
 	};
 	return new Proxy(fail, { get: (_t, prop) => (prop === Symbol.toPrimitive || prop === 'then' ? undefined : fail), apply: fail, construct: fail });
 }

@@ -9,6 +9,7 @@ export interface Clip {
 	text?: string;
 }
 
+// Keeps the earlier name: bookmarklets people already saved send this id.
 export const MSG = 'obsidian-online-clip';
 const MAX = 20 * 1024 * 1024;
 const str = (v: unknown, max = MAX) => (typeof v === 'string' && v.length <= max ? v : '');

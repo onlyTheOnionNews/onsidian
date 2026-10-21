@@ -113,12 +113,12 @@ class ClipperTab extends SettingTab {
 		this.containerEl.empty();
 		const s = new Setting(this.containerEl).setName('Bookmarklet')
 			.setDesc('Drag this link to your bookmarks bar. On any page, click it to save the article (or your selection) to the vault that was open last. You confirm each clip before it is saved.');
-		s.controlEl.createEl('a', { cls: 'clipper-bookmarklet', text: 'Clip to obsidian-online', href: bookmarklet(location.href) })
+		s.controlEl.createEl('a', { cls: 'clipper-bookmarklet', text: 'Clip to onsidian', href: bookmarklet(location.href) })
 			.addEventListener('click', (e) => {
 				e.preventDefault();
 				new Notice('Drag this link to your bookmarks bar.');
 			});
 		new Setting(this.containerEl).setName('Share to this app')
-			.setDesc('Install obsidian-online as an app (browser menu → Install). It then appears in your device’s share sheet.');
+			.setDesc('Install onsidian as an app (browser menu → Install). It then appears in your device’s share sheet.');
 	}
 }

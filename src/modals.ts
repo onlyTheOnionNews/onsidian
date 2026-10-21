@@ -498,7 +498,7 @@ class NetworkTab extends SettingTab {
 	display(): void {
 		const el = this.containerEl;
 		el.empty();
-		el.createDiv({ cls: 'setting-item-description', text: 'Browsers block pages from reading most other websites (CORS). Plugins that call web APIs, plugin installs from GitHub releases, and reader mode need a bridge you install yourself. obsidian-online runs no server. Requests use the first bridge available below.' });
+		el.createDiv({ cls: 'setting-item-description', text: 'Browsers block pages from reading most other websites (CORS). Plugins that call web APIs, plugin installs from GitHub releases, and reader mode need a bridge you install yourself. onsidian runs no server. Requests use the first bridge available below.' });
 		new Setting(el).setName('Active bridge').setDesc(activeBridge());
 
 		const hv = hoppscotchVersion();
@@ -508,7 +508,7 @@ class NetworkTab extends SettingTab {
 		new Setting(el).setName('Userscript bridge').setDesc('For Violentmonkey or Tampermonkey. Your userscript manager asks before each new site the script contacts.')
 			.addButton((b) => b.setButtonText('Download userscript').onClick(() => {
 				const url = URL.createObjectURL(new Blob([bridgeUserscript()], { type: 'text/javascript' }));
-				createEl('a', { href: url, attr: { download: 'obsidian-online-bridge.user.js' } }).click();
+				createEl('a', { href: url, attr: { download: 'onsidian-bridge.user.js' } }).click();
 				setTimeout(() => URL.revokeObjectURL(url), 60_000);
 			}));
 
@@ -535,7 +535,7 @@ class AboutTab extends SettingTab {
 	display(): void {
 		const el = this.containerEl;
 		el.empty();
-		new Setting(el).setName('obsidian-online').setDesc('A browser client for Markdown vaults. Not affiliated with Obsidian.').setHeading();
+		new Setting(el).setName('onsidian').setDesc('A browser client for Markdown vaults. Not affiliated with Obsidian.').setHeading();
 		new Setting(el).setName('Vault storage').setDesc(this.app.vault.adapter.constructor.name.replace('Adapter', '') + ` · ${this.app.vault.getName()}`);
 		new Setting(el).setName('Backup').setDesc('Browser storage can be cleared by the browser. Export regularly.')
 			.addButton((b) => b.setButtonText('Export .zip').setCta().onClick(() => this.app.commands.executeCommandById('app:export-vault-zip')))

@@ -27,6 +27,7 @@ interface RawResponse {
 type Bridge = { name: string; available(): boolean; send(p: RequestUrlParam): Promise<RawResponse> };
 
 const PROXY_KEY = 'obsidian-online:cors-proxy';
+// Protocol id and @namespace keep the earlier name: bridges people already installed use them.
 const BRIDGE_MSG = 'obsidian-online-bridge';
 
 export function getCorsProxy(): string {
@@ -75,10 +76,10 @@ window.postMessage({ type: `${BRIDGE_MSG}:ping` }, location.origin);
 /** Userscript for Violentmonkey/Tampermonkey, bound to this app's origin. */
 export function bridgeUserscript(): string {
 	return `// ==UserScript==
-// @name         obsidian-online network bridge
+// @name         onsidian network bridge
 // @namespace    obsidian-online
 // @version      1.0
-// @description  Lets obsidian-online (${location.origin}) make cross-origin requests for plugins. Your userscript manager asks before each new site (@connect).
+// @description  Lets onsidian (${location.origin}) make cross-origin requests for plugins. Your userscript manager asks before each new site (@connect).
 // @match        ${location.origin}/*
 // @grant        GM_xmlhttpRequest
 // @connect      *

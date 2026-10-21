@@ -1,9 +1,9 @@
-# obsidian-online — Architecture & Feature Plan
+# onsidian — Architecture & Feature Plan
 
 A browser client for Obsidian vaults that aims for full feature parity with the
 desktop/mobile apps, and that can run community plugins and themes.
 
-> **Hard constraint: no server hosting.** obsidian-online is a **static, client-only app**: HTML/JS/CSS/wasm
+> **Hard constraint: no server hosting.** onsidian is a **static, client-only app**: HTML/JS/CSS/wasm
 > served from any static host (GitHub Pages, Cloudflare Pages, Netlify, a USB stick served by `npx serve`).
 > We operate no backend, proxy, database, or account system. Anything online goes **browser → third-party
 > service directly**, and only to services that allow cross-origin (CORS) requests. Real-time collaboration

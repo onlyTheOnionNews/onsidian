@@ -29,6 +29,7 @@ This vault lives in your browser. Notes are plain Markdown.
 - Switch between editing and reading view with the book icon at the top right.
 `;
 
+// Storage keys keep the project's earlier name (obsidian-online) so existing vaults and settings stay found.
 const LAST_VAULT_KEY = 'obsidian-online:last-vault';
 
 function storageGet(key: string): string | null {
@@ -47,7 +48,7 @@ async function openVault(v: VaultEntry, caps: Caps, isNew = false, lock?: VaultL
 	const app = new App(adapter, caps.workers, v.id);
 	(globalThis as any).app = app; // plugins and devtools expect a global `app`
 	document.body.replaceChildren(app.containerEl);
-	document.title = `${v.name} - obsidian-online`;
+	document.title = `${v.name} - onsidian`;
 	await app.load();
 	if (v.kind !== 'mem') storageSet(LAST_VAULT_KEY, v.id);
 	// Browser vaults live in best-effort storage the browser may clear; ask for persistent storage (Chrome grants it
@@ -109,7 +110,7 @@ async function showPicker(caps: Caps, error?: string, busy?: VaultEntry): Promis
 	document.body.replaceChildren(root);
 	const card = root.createDiv('vault-picker-card');
 	card.createEl('img', { cls: 'vault-picker-logo', attr: { src: 'logo.svg', alt: '' } });
-	card.createEl('h1', { text: 'obsidian-online' });
+	card.createEl('h1', { text: 'onsidian' });
 	if (error) card.createDiv({ cls: 'vault-picker-error', text: error });
 
 	const run = (fn: () => Promise<void>, v?: VaultEntry) => async () => {

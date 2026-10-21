@@ -4,6 +4,6 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Mirror of obsidianmd/obsidian-sample-plugin, compiled to CommonJS by hand, plus extra API coverage.",
-	"author": "obsidian-online tests",
+	"author": "onsidian tests",
 	"isDesktopOnly": false
 }

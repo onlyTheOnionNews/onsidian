@@ -1,6 +1,6 @@
 {
-	"name": "obsidian-online",
-	"short_name": "obsidian-online",
+	"name": "onsidian",
+	"short_name": "onsidian",
 	"description": "Markdown notes in your browser, compatible with Obsidian vaults and plugins.",
 	"start_url": "./",
 	"scope": "./",
