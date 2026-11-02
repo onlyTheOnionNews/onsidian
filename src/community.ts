@@ -49,7 +49,7 @@ export async function fetchReleaseFile(repo: string, version: string, file: stri
 		if (r.status < 400) return r.text;
 	}
 	if (optional) return undefined;
-	throw new Error(`Couldn't download ${file} for ${repo}@${version}. It isn't on jsDelivr and no network bridge is installed. Download it from github.com/${repo}/releases and use "Install plugin from files", or set up a bridge in Settings → Network.`);
+	throw new Error(`Couldn't download ${file} for ${repo}@${version}. It isn't on jsDelivr and no network bridge is installed. Download it from github.com/${repo}/releases and use "Install plugin from files", or set up the Hoppscotch extension: Settings → Network → Set up.`);
 }
 
 // ---------------- Plugin browser ----------------

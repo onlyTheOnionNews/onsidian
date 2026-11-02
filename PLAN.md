@@ -274,6 +274,8 @@ Legend for the **WASM** column: **No** = pure JS/CSS, wasm adds nothing.
       (CVE-2024-34714: an origin-check bypass in older versions). Caveats: the hook is Hoppscotch's internal API, not a
       public contract, so it is wrapped in a small adapter with contract tests and can be dropped if it breaks.
       Binary bodies travel as base64 (slow for large files). The extension requests `<all_urls>` + `cookies`.
+      Found testing against the real v0.37: responses have no request id, so parallel requests swap responses (we
+      queue them, one at a time), and binary bodies gain up to two NUL bytes from base64 padding (we trim them).
    2. **Userscript bridge.** We publish a ~30-line userscript for Violentmonkey (MIT) / Tampermonkey that relays
       `postMessage` ↔ `GM_xmlhttpRequest`. Every target host must be declared with `@connect`, and the manager asks
       the user before contacting a new host, which gives per-domain consent. The bridge checks `event.origin`/`event.source`

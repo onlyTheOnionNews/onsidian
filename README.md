@@ -110,7 +110,8 @@ Browsers block a page from reading most other websites (CORS). onsidian runs no 
 from plugins (`requestUrl`), one-click plugin installs from GitHub, and the web viewer's reader mode use the first
 **network bridge** available:
 
-1. The **Hoppscotch browser extension** (v0.35 or later).
+1. The **Hoppscotch browser extension** (v0.35 or later). For step-by-step setup with pictures, open
+   *Settings → Network → Set up*, or run *Set up the Hoppscotch extension* from the command palette.
 2. The **userscript bridge** (Tampermonkey or Violentmonkey). Install it from *Settings → Network*. Your userscript
    manager asks before each new site.
 3. **Your own CORS proxy**, entered in *Settings → Network*.

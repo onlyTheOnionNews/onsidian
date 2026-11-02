@@ -676,3 +676,16 @@ body {
 /* Web clipper */
 .clipper-preview { max-height: 240px; overflow: auto; white-space: pre-wrap; font-size: var(--font-ui-smaller); background: var(--background-secondary); padding: var(--size-4-2); border-radius: var(--radius-s); }
 .clipper-bookmarklet { padding: var(--size-4-1) var(--size-4-3); border-radius: var(--radius-s); background: var(--interactive-accent); color: var(--text-on-accent); text-decoration: none; cursor: grab; }
+
+/* Hoppscotch setup guide */
+.bridge-guide { width: 640px; max-width: 94vw; }
+.bridge-guide-status { padding: var(--size-4-2) var(--size-4-3); border-radius: var(--radius-s); background: var(--background-secondary); border-left: 3px solid var(--text-faint); }
+.bridge-guide-status.mod-ready { border-left-color: var(--color-green); }
+.bridge-guide-step { margin-top: var(--size-4-5); }
+.bridge-guide-step h3 { margin: 0 0 var(--size-4-2); font-size: var(--font-ui-medium); }
+.bridge-guide-step p { margin: 0 0 var(--size-4-2); }
+.bridge-guide-note { color: var(--text-muted); font-size: var(--font-ui-small); margin: var(--size-4-2) 0; }
+.bridge-guide-links { display: flex; flex-wrap: wrap; gap: var(--size-4-4); margin-bottom: var(--size-4-2); }
+.bridge-guide-img { display: block; max-width: 100%; height: auto; margin: var(--size-4-2) 0; border-radius: var(--radius-m); border: var(--border-width) solid var(--background-modifier-border); }
+.bridge-guide-origin { display: flex; align-items: center; gap: var(--size-4-2); margin-bottom: var(--size-4-2); }
+.bridge-guide-origin code { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: var(--size-4-1) var(--size-4-2); background: var(--background-secondary); border-radius: var(--radius-s); }

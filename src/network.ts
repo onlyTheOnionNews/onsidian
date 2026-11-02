@@ -57,13 +57,52 @@ const hoppscotch: Bridge = {
 		// CVE-2024-34714: origin-check bypass in versions before 0.35.
 		return v.major > 0 || v.minor >= 35;
 	},
-	async send(p) {
-		const res = await (window as any).__POSTWOMAN_EXTENSION_HOOK__.sendRequest({
-			url: p.url, method: p.method ?? 'GET', headers: headersOf(p), data: p.body, wantsBinary: true,
-		});
-		return { status: res.status, headers: lowerKeys(res.headers ?? {}), body: res.data as ArrayBuffer };
+	send(p) {
+		const run = () => sendViaHoppscotch(p);
+		const result = hoppscotchQueue.then(run, run);
+		hoppscotchQueue = result.catch(() => {});
+		return result;
 	},
 };
+
+/**
+ * One request at a time. The extension's responses carry no request id (as of 0.37): every pending sendRequest takes
+ * the next response, so parallel requests silently receive each other's data.
+ * ponytail: a request that never settles blocks the queue until reload; add a timeout if that shows up in practice.
+ */
+let hoppscotchQueue: Promise<unknown> = Promise.resolve();
+
+async function sendViaHoppscotch(p: RequestUrlParam): Promise<RawResponse> {
+	const hook = (window as any).__POSTWOMAN_EXTENSION_HOOK__;
+	trackBase64Padding(hook);
+	// Non-2xx responses reject, carrying the response; requestUrl decides what to do with the status.
+	const res = await hook.sendRequest({
+		url: p.url, method: p.method ?? 'GET', headers: headersOf(p), data: p.body, wantsBinary: true,
+	}).catch((e: any) => {
+		if (e?.response) return e.response;
+		throw e;
+	});
+	const body = res.data as ArrayBuffer;
+	return { status: res.status, headers: lowerKeys(res.headers ?? {}), body: body.slice(0, body.byteLength - (base64Padding.get(body) ?? 0)) };
+}
+
+/**
+ * The extension (as of 0.37) sizes binary responses as base64 length / 4 * 3, ignoring "=" padding, so the body gains
+ * one or two NUL bytes unless its size is a multiple of 3. A trailing NUL breaks JSON.parse and a plugin's main.js.
+ * The hook calls its decoder through a replaceable property, so we note each buffer's padding there and trim exactly that.
+ */
+const base64Padding = new WeakMap<ArrayBuffer, number>();
+
+function trackBase64Padding(hook: any): void {
+	const decode = hook.decodeB64ToArrayBuffer;
+	if (typeof decode !== 'function' || decode.tracksPadding) return;
+	const wrapped = (input: string, ab?: ArrayBuffer) => {
+		if (ab) base64Padding.set(ab, /=*$/.exec(input)![0].length);
+		return decode(input, ab);
+	};
+	wrapped.tracksPadding = true;
+	hook.decodeB64ToArrayBuffer = wrapped;
+}
 
 // ---- Userscript bridge (public/bridge.user.js): postMessage ↔ GM_xmlhttpRequest ----
 let userscriptReady = false;
@@ -108,6 +147,16 @@ export function bridgeUserscript(): string {
 	post({ type: T + ':ready' });
 })();
 `;
+}
+
+export type HoppscotchState = 'missing' | 'needs-origin' | 'too-old' | 'ready';
+
+/** Installed extensions announce themselves on every site, marking the ones not on their origin list "unknown-origin". */
+export function hoppscotchState(): HoppscotchState {
+	if ((window as any).__HOPP_EXTENSION_STATUS_PROXY__?.status === 'unknown-origin') return 'needs-origin';
+	if (hoppscotch.available()) return 'ready';
+	if ((window as any).__POSTWOMAN_EXTENSION_HOOK__) return 'too-old';
+	return (window as any).__HOPP_EXTENSION_STATUS_PROXY__ ? 'needs-origin' : 'missing';
 }
 
 /** Hoppscotch hook version, or null when the extension isn't active for this origin. */

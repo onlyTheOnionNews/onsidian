@@ -4,6 +4,7 @@ import { EditorSelection } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import type { App } from './app';
 import { exportVaultZip, importZip } from './backup';
+import { HoppscotchGuide } from './bridge-guide';
 import { CommandPalette, QuickSwitcher } from './modals';
 import { promptText } from './ui';
 import type { MarkdownView } from './views/markdown';
@@ -88,6 +89,7 @@ export function registerCoreCommands(app: App): void {
 	});
 	c.addCommand({ id: 'app:export-vault-zip', name: 'Export vault as .zip', icon: 'download', callback: () => void exportVaultZip(app) });
 	c.addCommand({ id: 'app:import-zip', name: 'Import .zip into vault', icon: 'upload', callback: () => void importZip(app) });
+	c.addCommand({ id: 'app:hoppscotch-guide', name: 'Set up the Hoppscotch extension', icon: 'plug', callback: () => new HoppscotchGuide(app).open() });
 	c.addCommand({ id: 'app:toggle-left-sidebar', name: 'Toggle left sidebar', callback: () => app.workspace.leftSplit.toggle() });
 	c.addCommand({ id: 'app:toggle-right-sidebar', name: 'Toggle right sidebar', callback: () => app.workspace.rightSplit.toggle() });
 

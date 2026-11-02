@@ -1,0 +1,131 @@
+<!doctype html>
+<!-- Image source for public/guide/popup.png. Markup, CSS and icons are the Hoppscotch extension's own (MIT, v0.37: popup-script.ts, popup-style.css); only the highlight is ours. -->
+<meta charset="utf-8"><title>popup</title>
+<style>
+body {
+  background-color: #202124;
+  width: 30rem;
+  height: 35rem;
+  color: white;
+  font-family: "Inter", sans-serif;
+}
+
+.err {
+  background-color: #fe4645bb;
+  color: white;
+  display: flex;
+  padding: 0.4rem;
+  border-radius: 3px;
+}
+
+.err-text {
+  padding: 0 0.4rem;
+}
+
+.origin-input:focus,
+.origin-input:hover {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+  outline: none;
+}
+
+.origin-input {
+  padding: 4px 8px;
+  background-color: rgba(0, 0, 0, 0.2);
+  color: white;
+  border: 0;
+  border-radius: 2px;
+  font-family: "Inter", sans-serif;
+  display: flex;
+  flex: 1;
+}
+
+.origin-input-wrapper {
+  display: flex;
+}
+
+.origin-input-label {
+  color: rgba(255, 255, 255, 0.5);
+  margin: 8px;
+  display: flex;
+  font-size: 0.7rem;
+}
+
+.origin-list {
+  display: flex;
+  flex-direction: column;
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  overflow: auto;
+  max-height: 500px;
+}
+
+.origin-add {
+  background-color: #31c48d;
+  color: rgba(0, 0, 0, 0.82);
+  border-radius: 2px;
+  padding: 4px 12px;
+  outline: none;
+  font-weight: bold;
+  border: 0;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.origin-delete {
+  cursor: pointer;
+  background-color: transparent;
+  color: #fe4645;
+  border-radius: 2px;
+  padding: 4px 12px;
+  outline: none;
+  border: 0;
+  margin-left: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.origin-delete:disabled {
+  color: #ffffff55;
+  cursor: auto;
+}
+
+.button-text {
+  margin-left: 2px;
+}
+
+.origin-list-entry {
+  display: flex;
+  padding: 4px 0;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.origin-list-entry-origin {
+  flex: 1;
+  display: flex;
+}
+
+html { background: #202124; }
+body { margin: 8px; height: 214px; overflow: hidden; font-family: Inter, "Segoe UI", sans-serif; }
+.mark { outline: 3px solid #a675ff; outline-offset: 2px; border-radius: 3px; }
+</style>
+<form novalidate class="origin-input-box">
+<label class="origin-input-label" for="origin-input">Enter new origin</label>
+<div class="origin-input-wrapper">
+<input id="origin-input" class="origin-input" value="https://onsidian.example">
+<button class="origin-add mark" type="button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="18px" height="18px"><path d="M0 0h24v24H0z" fill="none"/><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+<span class="button-text">Add</span></button>
+</div>
+</form>
+<label class="origin-input-label">Active origins</label>
+<ul class="origin-list">
+<li class="origin-list-entry"><span class="origin-list-entry-origin">https://hoppscotch.io</span><button class="origin-delete" disabled><svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 0 24 24" fill="currentColor" width="18"><path d="M0 0h24v24H0z" fill="none"/><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+</button></li>
+<li class="origin-list-entry"><span class="origin-list-entry-origin">https://onsidian.example</span><button class="origin-delete"><svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 0 24 24" fill="currentColor" width="18"><path d="M0 0h24v24H0z" fill="none"/><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+</button></li>
+</ul>

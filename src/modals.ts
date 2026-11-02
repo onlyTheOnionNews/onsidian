@@ -7,7 +7,8 @@ import { FuzzySuggestModal, Modal, Setting, SuggestModal, prepareFuzzySearch, re
 import { TFile } from './vault';
 import { Notice } from './workspace';
 import { PluginBrowser, renderThemeSettings } from './community';
-import { activeBridge, bridgeUserscript, getCorsProxy, hoppscotchVersion, requestUrl, setCorsProxy } from './network';
+import { HoppscotchGuide } from './bridge-guide';
+import { activeBridge, bridgeUserscript, getCorsProxy, hoppscotchState, hoppscotchVersion, requestUrl, setCorsProxy } from './network';
 
 // ---------------- Command palette ----------------
 
@@ -501,9 +502,18 @@ class NetworkTab extends SettingTab {
 		el.createDiv({ cls: 'setting-item-description', text: 'Browsers block pages from reading most other websites (CORS). Plugins that call web APIs, plugin installs from GitHub releases, and reader mode need a bridge you install yourself. onsidian runs no server. Requests use the first bridge available below.' });
 		new Setting(el).setName('Active bridge').setDesc(activeBridge());
 
-		const hv = hoppscotchVersion();
+		const hopp = hoppscotchState();
 		new Setting(el).setName('Hoppscotch browser extension')
-			.setDesc(hv ? `Detected, version ${hv}${Number(hv.split('.')[1]) < 35 && hv.startsWith('0.') ? ': too old (CVE-2024-34714), update to 0.35 or newer.' : '.'}` : `Not detected. Install it from the Chrome or Firefox store, then add ${location.origin} to its allowed origins (extension popup).`);
+			.setDesc({
+				ready: `Connected, version ${hoppscotchVersion()}.`,
+				'too-old': `Version ${hoppscotchVersion()} is too old (CVE-2024-34714). Update to 0.35 or newer.`,
+				'needs-origin': `Installed, but ${location.origin} isn't on its list yet.`,
+				missing: 'Recommended. Free extension for Chrome, Edge and Firefox.',
+			}[hopp])
+			.addButton((b) => {
+				b.setButtonText(hopp === 'ready' ? 'Open guide' : 'Set up').onClick(() => new HoppscotchGuide(this.app).setCloseCallback(() => this.display()).open());
+				if (hopp !== 'ready') b.setCta();
+			});
 
 		new Setting(el).setName('Userscript bridge').setDesc('For Violentmonkey or Tampermonkey. Your userscript manager asks before each new site the script contacts.')
 			.addButton((b) => b.setButtonText('Download userscript').onClick(() => {
