@@ -266,8 +266,9 @@ export class PluginManager {
 	async loadManifests(): Promise<void> {
 		this.manifests = {};
 		const { adapter } = this.app.vault;
-		if (!(await adapter.exists(this.dir))) return;
-		for (const folder of (await adapter.list(this.dir)).folders) {
+		// A new vault has no plugins folder yet; bundled plugins below must still register.
+		const folders = (await adapter.exists(this.dir)) ? (await adapter.list(this.dir)).folders : [];
+		for (const folder of folders) {
 			try {
 				const m = JSON.parse(await adapter.read(`${folder}/manifest.json`)) as PluginManifest;
 				if (m.id) this.manifests[m.id] = { ...m, dir: folder };

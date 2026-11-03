@@ -45,8 +45,13 @@ export class TemplatesPlugin extends CorePlugin {
 		this.addCommand({
 			id: 'insert-template', name: 'Templates: Insert template', icon: 'files',
 			editorCheckCallback: (checking, editor, view) => {
-				if (!this.options.folder) return false;
 				if (checking) return true;
+				if (!this.options.folder) {
+					new Notice('Choose a template folder first: Settings → Templates.');
+					this.app.setting.open();
+					this.app.setting.openTabById('templates');
+					return;
+				}
 				const files = this.templateFiles();
 				if (!files.length) new Notice(`No templates in "${this.options.folder}".`);
 				else {
