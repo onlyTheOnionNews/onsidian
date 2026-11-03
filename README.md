@@ -91,7 +91,8 @@ You choose where each vault is stored. The vault picker lists every vault you ha
 - **Import .zip as folder**: the zip's contents become a folder named after it.
 - **Download as .zip** for a folder, **Download vault as .zip** for everything (settings included), and **Download** on any file.
 
-You can also drag files and folders from your computer onto the file explorer or onto a folder. Imports never
+You can also drag files and folders from your computer onto the file explorer or onto a folder. Files dragged or
+pasted onto a canvas are saved to the attachment folder (Settings → Files and links) and placed as cards. Imports never
 overwrite: a name that's taken becomes "Name 1". To move a vault to another browser or address, download it as .zip
 and use **Import vault from .zip** on the vault picker.
 

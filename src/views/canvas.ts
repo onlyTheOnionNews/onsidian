@@ -540,7 +540,7 @@ class CanvasController {
 			} else {
 				const p = this.toWorld(e);
 				menu.addItem((i) => i.setTitle('Add card').setIcon('sticky-note').onClick(() => this.addNode({ type: 'text', text: '', x: p.x, y: p.y, width: 250, height: 60 })));
-				menu.addItem((i) => i.setTitle('Add note from vault').setIcon('file-text').onClick(() => this.addFileAt(p)));
+				menu.addItem((i) => i.setTitle('Add file from vault').setIcon('file-text').onClick(() => this.addFileAt(p)));
 				menu.addItem((i) => i.setTitle('Add web link').setIcon('globe').onClick(() => void this.addLinkAt(p)));
 				menu.addItem((i) => i.setTitle('Create group').setIcon('box-select').onClick(() => this.addNode({ type: 'group', label: 'Group', x: p.x, y: p.y, width: 400, height: 300 })));
 			}
@@ -562,13 +562,21 @@ class CanvasController {
 			e.stopPropagation();
 		});
 
-		// Drop files from the explorer or the OS (vault files only for OS drops: we don't import here).
+		// Drop files from the explorer, or from the OS: those are saved as attachments, then placed.
 		w.addEventListener('dragover', (e) => e.preventDefault());
 		w.addEventListener('drop', (e) => {
 			e.preventDefault();
 			const path = e.dataTransfer?.getData('text/plain');
 			const file = path ? this.app.vault.getFileByPath(path) : null;
 			if (file) this.addFile(file, this.toWorld(e));
+			else if (e.dataTransfer?.files.length) void this.addOsFiles([...e.dataTransfer.files], this.toWorld(e));
+		});
+		// Paste images or files copied from the OS, placed in the middle of the view.
+		w.addEventListener('paste', (e) => {
+			if ((e.target as HTMLElement).tagName === 'TEXTAREA' || !e.clipboardData?.files.length) return;
+			e.preventDefault();
+			const r = w.getBoundingClientRect();
+			void this.addOsFiles([...e.clipboardData.files], this.toWorld({ clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }));
 		});
 	}
 
@@ -677,6 +685,22 @@ class CanvasController {
 		this.addNode({ type: 'file', file: file.path, x: Math.round(at.x), y: Math.round(at.y), width: 400, height: media ? 300 : 400 });
 	}
 
+	/** Save files from outside the vault per the attachment-folder setting, then add each as a card, side by side. */
+	private async addOsFiles(files: File[], at: { x: number; y: number }): Promise<void> {
+		for (const f of files) {
+			try {
+				// Pasted screenshots arrive as "image.png"; Obsidian names them "Pasted image <timestamp>".
+				const name = f.name && f.name !== 'image.png' ? f.name : `Pasted image ${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}.png`;
+				const path = await this.app.fileManager.getAvailablePathForAttachment(name, this.path);
+				this.addFile(await this.app.vault.createBinary(path, await f.arrayBuffer()), at);
+				at = { x: at.x + 420, y: at.y };
+			} catch (err) {
+				// Folders dropped from the OS can't be read as files; Files' own drop imports those.
+				new Notice(`Couldn't add "${f.name}": ${(err as Error).message}`);
+			}
+		}
+	}
+
 	private addFileAt(at: { x: number; y: number }): void {
 		const files = this.app.vault.getFiles().filter((f) => f.path !== this.path);
 		new VaultFilePicker(this.app, files, (f) => this.addFile(f, at)).open();
@@ -704,7 +728,7 @@ class CanvasController {
 			const n = this.addNode({ type: 'text', text: '', x: Math.round(p.x - 125), y: Math.round(p.y - 30), width: 250, height: 60 });
 			this.editText(this.nodes.get(n.id)!);
 		});
-		btn('file-text', 'Add note from vault', () => this.addFileAt(center()));
+		btn('file-text', 'Add file from vault', () => this.addFileAt(center()));
 		btn('globe', 'Add web link', () => void this.addLinkAt(center()));
 		btn('box-select', 'Create group', () => {
 			const p = center();
