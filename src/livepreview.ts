@@ -135,6 +135,21 @@ interface Block {
 	source: string;
 }
 
+
+/**
+ * Links to notes that don't exist get "is-unresolved", as in reading view. ponytail: re-checked whenever the line
+ * re-renders (edits, cursor moves, scrolling); a note created elsewhere restyles its links on the next re-render.
+ */
+function linkClass(host: { app: App; sourcePath(): string }, target: string, base: string): string {
+	let path = target.split('#')[0].trim();
+	try {
+		path = decodeURI(path);
+	} catch {
+		// malformed %-escape: look it up as written
+	}
+	return !path || host.app.metadataCache.getFirstLinkpathDest(path, host.sourcePath()) ? base : `${base} is-unresolved`;
+}
+
 function findFrontmatter(state: EditorState): { from: number; to: number; yaml: string } | null {
 	const doc = state.doc;
 	if (doc.lines < 2 || doc.line(1).text !== '---') return null;
@@ -316,7 +331,7 @@ export function livePreview(host: LivePreviewHost, renderedLangs: (lang: string)
 							const textTo = marks[1].from;
 							deco.push(hidden.range(node.from, textFrom));
 							const external = /^[a-z][a-z0-9+.-]*:/i.test(href);
-							pushMark(deco, { class: external ? 'cm-link cm-underline external-link' : 'cm-hmd-internal-link cm-underline', attributes: { 'data-href': href, 'data-external': String(external) } }, textFrom, textTo);
+							pushMark(deco, { class: external ? 'cm-link cm-underline external-link' : linkClass(host, href, 'cm-hmd-internal-link cm-underline'), attributes: { 'data-href': href, 'data-external': String(external) } }, textFrom, textTo);
 							deco.push(hidden.range(textTo, node.to));
 							return false;
 						}
@@ -397,7 +412,7 @@ function scanLine(text: string, base: number, inCode: (a: number, b: number) => 
 		const bar = inner.indexOf('|');
 		const target = (bar < 0 ? inner : inner.slice(0, bar)).trim();
 		if (touches(state, from, to)) {
-			pushMark(deco, { class: 'cm-hmd-internal-link', attributes: { 'data-href': target } }, from + bang.length + 2, to - 2);
+			pushMark(deco, { class: linkClass(host, target, 'cm-hmd-internal-link'), attributes: { 'data-href': target } }, from + bang.length + 2, to - 2);
 			return;
 		}
 		if (bang) {
@@ -406,7 +421,7 @@ function scanLine(text: string, base: number, inCode: (a: number, b: number) => 
 		}
 		const textFrom = bar < 0 ? from + 2 : from + 2 + bar + 1;
 		deco.push(hidden.range(from, textFrom));
-		pushMark(deco, { class: 'cm-hmd-internal-link cm-underline', attributes: { 'data-href': target } }, textFrom, to - 2);
+		pushMark(deco, { class: linkClass(host, target, 'cm-hmd-internal-link cm-underline'), attributes: { 'data-href': target } }, textFrom, to - 2);
 		deco.push(hidden.range(to - 2, to));
 	});
 	each(TAG, (m, from, to) => pushMark(deco, { class: 'cm-hashtag cm-hashtag-begin cm-hashtag-end' }, from + m[1].length, to));

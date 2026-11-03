@@ -420,3 +420,4 @@ body {
 .cm-tooltip-autocomplete > ul > li[aria-selected] { background: var(--background-modifier-hover) !important; color: var(--text-normal) !important; }
 .cm-completionDetail { color: var(--text-faint); margin-left: var(--size-4-2); font-style: normal; }
 .cm-completionMatchedText { color: var(--text-accent); text-decoration: none; font-weight: var(--font-semibold); }
+.is-live-preview .cm-hmd-internal-link.is-unresolved { color: var(--link-unresolved-color); opacity: var(--link-unresolved-opacity); filter: var(--link-unresolved-filter); text-decoration-style: var(--link-unresolved-decoration-style); text-decoration-color: var(--link-unresolved-decoration-color); }
