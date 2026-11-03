@@ -1,6 +1,7 @@
 // File explorer core view (PLAN §5.1), using Obsidian's nav-* / tree-item class names for theme compatibility.
 // ponytail: re-renders the whole tree on any vault change (fine to a few thousand items; diff per item if it lags).
-// No drag-and-drop yet.
+// Drag and drop imports files and folders from the computer; moving items within the tree isn't supported yet.
+import { addTransferMenuItems, droppedItems, importAndShow } from '../backup';
 import { setIcon } from '../icons';
 import { Menu, promptText } from '../ui';
 import { TAbstractFile, TFile, TFolder } from '../vault';
@@ -17,18 +18,59 @@ export class FileExplorerView extends ItemView {
 		this.containerEl.addClass('file-explorer');
 		this.headerEl.hide();
 		const nav = this.contentEl.createDiv('nav-header').createDiv('nav-buttons-container');
-		const button = (icon: string, label: string, cb: () => void) => {
+		const button = (icon: string, label: string, cb: (e?: MouseEvent) => void) => {
 			const el = nav.createDiv({ cls: 'clickable-icon nav-action-button', attr: { 'aria-label': label } });
 			setIcon(el, icon);
 			el.addEventListener('click', cb);
 		};
 		button('square-pen', 'New note', () => void this.app.newNote());
 		button('folder-plus', 'New folder', () => void this.newFolder(this.app.vault.getRoot()));
+		button('upload', 'Import or download', (e?: MouseEvent) => {
+			const menu = new Menu();
+			addTransferMenuItems(this.app, menu, this.app.vault.getRoot());
+			menu.showAtMouseEvent(e!);
+		});
 		button('chevrons-down-up', 'Collapse all', () => {
 			for (const f of this.app.vault.getAllFolders()) this.collapsed.add(f.path);
 			this.render();
 		});
 		this.treeEl = this.contentEl.createDiv('nav-files-container');
+		this.bindDrop();
+	}
+
+	/** Drop files or folders from the computer onto a folder (or a file, meaning its folder, or empty space: the root). */
+	private bindDrop(): void {
+		let over: HTMLElement | null = null;
+		const highlight = (el: HTMLElement | null) => {
+			over?.removeClass('is-being-dragged-over');
+			over = el;
+			over?.addClass('is-being-dragged-over');
+		};
+		const destOf = (e: DragEvent): { path: string; el: HTMLElement } => {
+			const row = (e.target as HTMLElement).closest<HTMLElement>('[data-path]');
+			const f = row ? this.app.vault.getAbstractFileByPath(row.dataset.path!) : null;
+			const folder = f instanceof TFolder ? f : f?.parent ?? this.app.vault.getRoot();
+			const el = folder.isRoot() ? this.treeEl : this.treeEl.querySelector<HTMLElement>(`.nav-folder-title[data-path="${CSS.escape(folder.path)}"]`)?.parentElement ?? this.treeEl;
+			return { path: folder.isRoot() ? '' : folder.path, el };
+		};
+		const isFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+		this.contentEl.addEventListener('dragover', (e) => {
+			if (!isFiles(e)) return;
+			e.preventDefault();
+			e.dataTransfer!.dropEffect = 'copy';
+			highlight(destOf(e).el);
+		});
+		this.contentEl.addEventListener('dragleave', (e) => {
+			if (!this.contentEl.contains(e.relatedTarget as Node)) highlight(null);
+		});
+		this.contentEl.addEventListener('drop', (e) => {
+			if (!isFiles(e)) return;
+			e.preventDefault();
+			highlight(null);
+			const { path } = destOf(e);
+			const items = droppedItems(e.dataTransfer!); // must start inside the event
+			void items.then((list) => importAndShow(this.app, list, path)).catch((err) => new Notice(`Import failed: ${err?.message ?? err}`));
+		});
 	}
 
 	getViewType(): string {
@@ -112,6 +154,7 @@ export class FileExplorerView extends ItemView {
 			menu.addItem((i) => i.setTitle('Open in new tab').setIcon('file-plus').setSection('open').onClick(safe(() => this.app.workspace.getLeaf('tab').openFile(file))));
 			menu.addItem((i) => i.setTitle('Open to the right').setIcon('separator-vertical').setSection('open').onClick(safe(() => this.app.workspace.getLeaf('split').openFile(file))));
 		}
+		addTransferMenuItems(this.app, menu, file);
 		menu.addItem((i) => i.setTitle('Copy path').setIcon('copy').setSection('info').onClick(safe(() => navigator.clipboard.writeText(file.path))));
 		menu.addItem((i) => i.setTitle('Rename…').setIcon('pencil').setSection('action').onClick(safe(() => this.rename(file))));
 		menu.addItem((i) => i.setTitle('Delete').setIcon('trash-2').setWarning(true).setSection('danger').onClick(safe(() => this.app.fileManager.promptForDeletion(file))));

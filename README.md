@@ -85,10 +85,20 @@ You choose where each vault is stored. The vault picker lists every vault you ha
 | **Browser storage: IndexedDB** | Fallback when OPFS is unavailable | Same, slower. |
 | **Memory** | Last resort (for example, some private windows) | Lost when the tab closes. |
 
+**Getting files in and out.** In the file explorer, the upload button and each folder's right-click menu offer:
+- **Import files** (any type: notes, `.canvas`, `.base`, images, PDFs). A single imported file opens right away.
+- **Import folder**, which keeps its subfolders.
+- **Import .zip as folder**: the zip's contents become a folder named after it.
+- **Download as .zip** for a folder, **Download vault as .zip** for everything (settings included), and **Download** on any file.
+
+You can also drag files and folders from your computer onto the file explorer or onto a folder. Imports never
+overwrite: a name that's taken becomes "Name 1". To move a vault to another browser or address, download it as .zip
+and use **Import vault from .zip** on the vault picker.
+
 Things to know about browser storage:
 - **Browsers can clear it** when the device runs low on space or when site data is cleared. onsidian requests
   persistent storage, and warns you if a vault that used to have notes opens empty. **Keep a backup:**
-  the command palette's *Export vault as .zip*, and *Import .zip into vault* to restore.
+  *Download vault as .zip* (file explorer → upload button), and *Import vault from .zip* on the vault picker to restore.
 - **One tab per vault.** A second tab offers to take the vault over, and the first tab saves and hands it off.
 
 The vault format is plain Obsidian: Markdown files plus a `.obsidian/` folder. The window layout is kept in

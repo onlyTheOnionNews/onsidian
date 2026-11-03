@@ -4,6 +4,7 @@ import './theme.css';
 import './ui.css';
 import './markdown.css';
 import { App } from './app';
+import { pickFiles, restoreVaultZip } from './backup';
 import { applyAppearance } from './appearance';
 import { ButtonComponent, Modal } from './ui';
 import { probeCaps, type Caps } from './caps';
@@ -165,6 +166,17 @@ async function showPicker(caps: Caps, error?: string, busy?: VaultEntry): Promis
 		const name = input.value.trim();
 		if (name) void run(async () => openVault(await addBrowserVault(name, kind), caps, true))();
 	});
+
+	const restore = card.createEl('button', { text: 'Import vault from .zip' });
+	card.createDiv({ cls: 'setting-item-description', text: 'Creates a new browser vault from a .zip, such as one downloaded with "Download vault as .zip". Use it to move a vault to another browser or address.' });
+	restore.addEventListener('click', run(async () => {
+		const [item] = await pickFiles({ accept: '.zip,application/zip' });
+		if (!item) return;
+		const v = await addBrowserVault(item.file.name.replace(/\.zip$/i, '').replace(/-\d{4}-\d{2}-\d{2}$/, '') || 'Imported vault', kind);
+		const files = await restoreVaultZip(await openAdapter(v), item.file);
+		if (!files) throw new Error(`${item.file.name} has no files.`);
+		await openVault(v, caps);
+	}));
 
 	const missing = (Object.entries({ WebAssembly: caps.wasm, 'Web Workers': caps.workers, WebGL: caps.webgl, 'Service Worker': caps.serviceWorker }) as [string, boolean][])
 		.filter(([, ok]) => !ok).map(([n]) => n);
