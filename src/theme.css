@@ -757,3 +757,21 @@ input[type='text']:focus { outline: 2px solid hsla(var(--interactive-accent-hsl)
 .vault-create { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
 .vault-create input { flex: 1; min-width: 160px; }
 .vault-create .setting-item-description { flex-basis: 100%; margin: 0; }
+
+/* Phones and narrow windows: sidebars float over the notes instead of squeezing them (workspace.ts closes them). */
+@media (max-width: 767px) {
+	.workspace { position: relative; }
+	.workspace-split.mod-sidedock {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		z-index: var(--layer-sidedock);
+		/* Leave a strip of the note showing: tapping it closes the sidebar. */
+		width: min(320px, calc(100vw - var(--ribbon-width) - 56px)) !important;
+		box-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+	}
+	.workspace-split.mod-left-split { left: var(--ribbon-width); }
+	.workspace-split.mod-right-split { right: 0; }
+	.workspace-split.mod-sidedock > .workspace-leaf-resize-handle { display: none; }
+	.status-bar { max-width: 100%; overflow: hidden; white-space: nowrap; }
+}

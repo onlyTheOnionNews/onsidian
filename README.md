@@ -159,7 +159,7 @@ To change the Relay version, review the release, then run `node scripts/vendor-r
 |---|---|
 | Chrome, Edge, Opera, Brave (desktop) | Full support, including vaults in folders on disk |
 | Firefox, Safari (desktop) | Full support with vaults in browser storage; no folder vaults |
-| Mobile browsers | Works; the UI isn't tuned for small screens yet |
+| Mobile browsers | Works. On narrow screens the sidebars open over the note and close when you open a file or tap the note; there's no touch-specific editing UI yet |
 
 The app needs a secure context (`https://` or `localhost`) for OPFS, Service Workers and the Web Crypto API. Every
 feature checks the capabilities it needs, so blocked features (WebAssembly disabled, workers blocked by policy,

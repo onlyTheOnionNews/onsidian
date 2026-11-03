@@ -270,6 +270,8 @@ export class WorkspaceRoot extends WorkspaceSplit {
 
 export class WorkspaceSidedock extends WorkspaceSplit {
 	collapsed = false;
+	/** What the user chose; the saved layout uses this, so automatic closing on narrow screens is never persisted. */
+	chosenCollapsed = false;
 	width: number;
 
 	constructor(workspace: Workspace, public side: 'left' | 'right') {
@@ -313,10 +315,13 @@ export class WorkspaceSidedock extends WorkspaceSplit {
 	collapse(): void { this.setCollapsed(true); }
 	expand(): void { this.setCollapsed(false); }
 
-	private setCollapsed(c: boolean): void {
+	/** `save`: false for automatic changes (narrow screens) that shouldn't change the saved layout. */
+	setCollapsed(c: boolean, save = true): void {
 		this.collapsed = c;
 		this.containerEl.toggleClass('is-sidedock-collapsed', c);
 		this.workspace.trigger('resize');
+		if (!save) return;
+		this.chosenCollapsed = c;
 		this.workspace.requestSaveLayout();
 	}
 
@@ -634,6 +639,7 @@ export class Workspace extends Events {
 		this.rootSplit.ensureLeaf();
 		for (const side of [this.leftSplit, this.rightSplit]) if (!side.children.length) side.insertChild(0, new WorkspaceTabs(this, true));
 		this.layoutReady = true;
+		this.bindNarrowScreens();
 		for (const cb of this.layoutReadyCbs.splice(0)) cb();
 		this.on('layout-change', () => this.requestSaveLayout());
 		this.on('active-leaf-change', () => this.requestSaveLayout());
@@ -646,7 +652,7 @@ export class Workspace extends Events {
 			if (item instanceof WorkspaceTabs) return { id: item.id, type: 'tabs', children: item.children.map(ser), currentTab: item.currentTab };
 			const split = item as WorkspaceSplit;
 			const out: any = { id: split.id, type: 'split', children: split.children.map(ser), direction: split.direction };
-			if (split instanceof WorkspaceSidedock) Object.assign(out, { width: split.width, collapsed: split.collapsed });
+			if (split instanceof WorkspaceSidedock) Object.assign(out, { width: split.width, collapsed: split.chosenCollapsed });
 			return out;
 		};
 		return {
@@ -699,6 +705,21 @@ export class Workspace extends Events {
 			const first = firstLeaf(this.rootSplit);
 			if (first) this.setActiveLeaf(first);
 		}
+	}
+
+	/**
+	 * Phones and narrow windows: sidebars float over the notes (CSS) and start closed. Opening a file or tapping the
+	 * notes closes them, so a tap in Files or search shows the result. None of this is saved to the layout.
+	 */
+	private bindNarrowScreens(): void {
+		const narrow = window.matchMedia('(max-width: 767px)');
+		const close = () => {
+			if (!narrow.matches) return;
+			for (const side of [this.leftSplit, this.rightSplit]) if (!side.collapsed) side.setCollapsed(true, false);
+		};
+		close();
+		this.on('file-open', close);
+		this.rootSplit.containerEl.addEventListener('pointerdown', close);
 	}
 
 	onLayoutReady(cb: () => any): void {
